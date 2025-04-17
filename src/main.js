@@ -774,6 +774,14 @@ class SignalPropagation {
     this.signalGrid = [];
     this.raycaster = new THREE.Raycaster();
 
+    // Add new properties for 3D visualization
+    this.volumeVisualizer = null;
+    this.is3DVisualizationActive = false;
+    this.verticalResolution = 5; // meters between vertical layers
+    this.maxVisualizationHeight = 50; // maximum height for 3D visualization
+    this.volumeOpacity = 0.15; // default opacity for volume cubes
+    this.volumeCubes = []; // store references to cubes for updates
+
     // Create materials for the transmitter
     this.transmitterMaterial = new THREE.MeshStandardMaterial({
       color: 0x000000,
@@ -841,6 +849,10 @@ class SignalPropagation {
     this.updateDirectionIndicator();
     // Calculate and visualize signal propagation
     this.calculateSignalPropagation();
+
+    if (this.is3DVisualizationActive) {
+      this.calculate3DSignalPropagation();
+    }
   }
 
   // Calculate path loss using 3GPP Urban Macro Model
@@ -1094,6 +1106,14 @@ class SignalPropagation {
 
     // Add legend for signal strength colors
     this.createSignalLegend();
+
+    // After completing 2D visualization, also update 3D if active
+    if (this.is3DVisualizationActive) {
+      this.calculate3DSignalPropagation();
+    }
+
+    // Show the correct visualization based on current mode
+    this.toggleVisualizationMode(this.is3DVisualizationActive);
   }
 
   // Create a legend to show signal strength color mapping
@@ -1314,6 +1334,268 @@ class SignalPropagation {
     this.antennaGainPattern = pattern;
   }
 
+  // ----------------------------------- 3D methods -----------------------------------------------
+
+  calculate3DSignalPropagation() {
+    console.log('Calculating 3D signal propagation...');
+
+    // Clear previous 3D visualization if it exists
+    this.clear3DVisualization();
+
+    if (!this.transmitterPosition) return;
+
+    // Get ground plane dimensions
+    let groundSize = 2000; // Default size
+    if (ground.geometry && ground.geometry.parameters) {
+      groundSize = Math.max(
+        ground.geometry.parameters.width,
+        ground.geometry.parameters.height
+      );
+    }
+
+    // Update grid size to match ground plane
+    this.gridSize = groundSize;
+
+    // Calculate grid boundaries based on ground plane dimensions
+    const halfGrid = this.gridSize / 2;
+    const startX = -halfGrid;
+    const startZ = -halfGrid;
+    const endX = halfGrid;
+    const endZ = halfGrid;
+
+    // Create group for all volume cubes
+    this.volumeVisualizer = new THREE.Group();
+    this.scene.add(this.volumeVisualizer);
+
+    // Find maximum building height in the scene to determine visualization height
+    let maxBuildingHeight = 0;
+    const buildings = this.getBuildingObjects();
+    buildings.forEach(building => {
+      // Get building bounds
+      const boundingBox = new THREE.Box3().setFromObject(building);
+      const height = boundingBox.max.y;
+      maxBuildingHeight = Math.max(maxBuildingHeight, height);
+    });
+
+    // Set max visualization height based on buildings or use default if no buildings
+    this.maxVisualizationHeight = Math.max(maxBuildingHeight * 1.5, this.maxVisualizationHeight);
+    console.log(`Maximum visualization height: ${this.maxVisualizationHeight}m`);
+
+    // Determine number of points in each dimension based on resolution
+    const xPointCount = Math.ceil(this.gridSize / this.gridResolution);
+    const zPointCount = Math.ceil(this.gridSize / this.gridResolution);
+    const yPointCount = Math.ceil(this.maxVisualizationHeight / this.verticalResolution);
+
+    console.log(`Calculating 3D signal propagation on a ${xPointCount}x${yPointCount}x${zPointCount} grid...`);
+    console.log(`This will create ${xPointCount * yPointCount * zPointCount} cubes - high resolution may impact performance.`);
+
+    // Optimize: create a single geometry for the cube
+    const cubeGeometry = new THREE.BoxGeometry(
+      this.gridResolution * 0.9, // Slightly smaller than grid size
+      this.verticalResolution * 0.9,
+      this.gridResolution * 0.9
+    );
+
+    // Counter for number of cubes created
+    let cubeCount = 0;
+
+    // For each grid point in 3D space
+    for (let yIndex = 0; yIndex < yPointCount; yIndex++) {
+      const yVal = yIndex * this.verticalResolution + (this.verticalResolution / 2);
+
+      // Skip points below ground level
+      if (yVal < 0) continue;
+
+      for (let zIndex = 0; zIndex < zPointCount; zIndex++) {
+        const zVal = startZ + zIndex * this.gridResolution;
+
+        for (let xIndex = 0; xIndex < xPointCount; xIndex++) {
+          const xVal = startX + xIndex * this.gridResolution;
+
+          // Create 3D point
+          const gridPoint = new THREE.Vector3(xVal, yVal, zVal);
+
+          // Skip points inside buildings
+          if (this.isPointInsideBuilding(gridPoint)) continue;
+
+          // Check if point has line-of-sight to transmitter
+          const hasLOS = this.checkLineOfSight(gridPoint);
+
+          // Calculate 3D distance from point to transmitter
+          const distance = gridPoint.distanceTo(this.transmitterPosition);
+
+          // Calculate path loss based on distance and LOS/NLOS status
+          const pathLoss = this.calculatePathLoss(distance, hasLOS);
+
+          // Calculate signal strength in dBm including directivity
+          const signalStrength = this.calculateSignalStrength(pathLoss, gridPoint);
+
+          // Get color for this signal strength
+          const color = this.getColorForSignalStrength(signalStrength);
+
+          // Set opacity based on signal strength (stronger signals more visible)
+          const normalizedStrength = (signalStrength - SIGNAL_CONSTANTS.minSignalStrength) /
+            (SIGNAL_CONSTANTS.maxSignalStrength - SIGNAL_CONSTANTS.minSignalStrength);
+          let opacity = this.volumeOpacity * (0.5 + normalizedStrength * 0.5);
+
+          // Create cube material
+          const cubeMaterial = new THREE.MeshBasicMaterial({
+            color: color,
+            transparent: true,
+            opacity: opacity,
+            depthWrite: false // Important for transparent objects
+          });
+
+          // Create mesh with shared geometry and unique material
+          const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+
+          // Position cube
+          cube.position.set(xVal, yVal, zVal);
+
+          // Store signal strength as a property for interaction
+          cube.userData = {
+            signalStrength: signalStrength,
+            hasLOS: hasLOS,
+            distance: distance,
+            pathLoss: pathLoss
+          };
+
+          // Store reference to cube for updates
+          this.volumeCubes.push(cube);
+
+          // Add to group
+          this.volumeVisualizer.add(cube);
+
+          // Increment counter
+          cubeCount++;
+
+          // Display progress periodically to keep UI responsive for large grids
+          if (cubeCount % 1000 === 0) {
+            console.log(`Created ${cubeCount} cubes...`);
+          }
+        }
+      }
+    }
+
+    console.log(`3D signal propagation visualization complete. Created ${cubeCount} cubes.`);
+
+    // Initially hide the 3D visualization
+    this.toggleVisualizationMode(false);
+  }
+
+
+
+
+  // Method to update opacity settings for volume visualization
+  updateVolumeOpacity(opacity) {
+    this.volumeOpacity = opacity;
+
+    // Update all existing cubes
+    this.volumeCubes.forEach(cube => {
+      if (cube.material) {
+        // Get normalized signal strength from the cube's userData
+        const signalStrength = cube.userData.signalStrength;
+        const normalizedStrength = (signalStrength - SIGNAL_CONSTANTS.minSignalStrength) /
+          (SIGNAL_CONSTANTS.maxSignalStrength - SIGNAL_CONSTANTS.minSignalStrength);
+
+        // Update opacity based on signal strength
+        cube.material.opacity = this.volumeOpacity * (0.5 + normalizedStrength * 0.5);
+        cube.material.needsUpdate = true;
+      }
+    });
+  }
+
+  // Method to update vertical resolution for 3D grid
+  updateVerticalResolution(resolution) {
+    if (resolution !== this.verticalResolution) {
+      this.verticalResolution = resolution;
+
+      // If 3D visualization is active, recalculate it
+      if (this.is3DVisualizationActive && this.volumeVisualizer) {
+        this.calculate3DSignalPropagation();
+      }
+    }
+  }
+
+  // Helper method to check if a point is inside a building
+  isPointInsideBuilding(point) {
+    const buildings = this.getBuildingObjects();
+
+    // Convert buildings array to ensure we have the structure expected
+    const buildingMeshes = buildings.filter(obj => obj instanceof THREE.Mesh);
+
+    // Use raycasting technique to check if point is inside
+    // Cast rays in 6 principal directions (±X, ±Y, ±Z)
+    const directions = [
+      new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(-1, 0, 0),
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(0, -1, 0),
+      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(0, 0, -1)
+    ];
+
+    // Simple optimization - only fully check if we're above ground level
+    if (point.y <= 0.1) return false;
+
+    // Performance optimization for large scenes: First do a bounding box check
+    for (const building of buildingMeshes) {
+      // Get building bounding box
+      const boundingBox = new THREE.Box3().setFromObject(building);
+
+      // Check if point is inside the bounding box
+      if (boundingBox.containsPoint(point)) {
+        // For curved buildings, we'd need more precise checking here
+        // But for simple buildings, this is sufficient
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // Clear 3D visualization
+  clear3DVisualization() {
+    if (this.volumeVisualizer) {
+      // Remove from scene
+      this.scene.remove(this.volumeVisualizer);
+
+      // Dispose of geometries and materials to free memory
+      this.volumeVisualizer.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          if (node.geometry) node.geometry.dispose();
+          if (node.material) {
+            if (Array.isArray(node.material)) {
+              node.material.forEach(material => material.dispose());
+            } else {
+              node.material.dispose();
+            }
+          }
+        }
+      });
+
+      this.volumeVisualizer = null;
+      this.volumeCubes = [];
+    }
+  }
+
+  // Toggle between 2D and 3D visualization modes
+  toggleVisualizationMode(use3D) {
+    this.is3DVisualizationActive = use3D;
+
+    // Show/hide the appropriate visualization
+    if (this.gridVisualizer) {
+      this.gridVisualizer.visible = !use3D;
+    }
+
+    if (this.volumeVisualizer) {
+      this.volumeVisualizer.visible = use3D;
+    } else if (use3D) {
+      // Calculate 3D visualization if it doesn't exist yet
+      this.calculate3DSignalPropagation();
+    }
+  }
+
 }
 
 // Create UI controls for signal propagation
@@ -1486,7 +1768,188 @@ function createSignalControls(signalPropagation) {
 
   // ... rest of existing code ...
 
+  // --------------------------------- 3D visualization UI --------------------------------
 
+  const divider = document.createElement('hr');
+  divider.style.margin = '15px 0';
+  signalContainer.appendChild(divider);
+
+  // Add 3D Visualization section title
+  const viz3DTitle = document.createElement('div');
+  viz3DTitle.textContent = '3D Visualization Settings';
+  viz3DTitle.style.fontWeight = 'bold';
+  viz3DTitle.style.marginBottom = '10px';
+  signalContainer.appendChild(viz3DTitle);
+
+  // Add toggle between 2D and 3D visualization
+  const vizModeContainer = document.createElement('div');
+  vizModeContainer.style.marginBottom = '10px';
+
+  const vizModeCheckbox = document.createElement('input');
+  vizModeCheckbox.type = 'checkbox';
+  vizModeCheckbox.id = 'viz-3d-mode';
+  vizModeCheckbox.checked = signalPropagation.is3DVisualizationActive;
+
+  vizModeCheckbox.addEventListener('change', () => {
+    // Show loading indicator for large grids
+    const loadingMsg = document.createElement('div');
+    loadingMsg.textContent = 'Calculating 3D visualization...';
+    loadingMsg.style.position = 'absolute';
+    loadingMsg.style.top = '50%';
+    loadingMsg.style.left = '50%';
+    loadingMsg.style.transform = 'translate(-50%, -50%)';
+    loadingMsg.style.background = 'rgba(0,0,0,0.7)';
+    loadingMsg.style.color = 'white';
+    loadingMsg.style.padding = '20px';
+    loadingMsg.style.borderRadius = '5px';
+    loadingMsg.style.zIndex = '1000';
+    document.body.appendChild(loadingMsg);
+
+    // Use setTimeout to allow UI to update
+    setTimeout(() => {
+      signalPropagation.toggleVisualizationMode(vizModeCheckbox.checked);
+      document.body.removeChild(loadingMsg);
+    }, 10);
+  });
+
+  const vizModeLabel = document.createElement('label');
+  vizModeLabel.htmlFor = 'viz-3d-mode';
+  vizModeLabel.textContent = 'Use 3D Volumetric Visualization';
+  vizModeLabel.style.marginLeft = '5px';
+
+  vizModeContainer.appendChild(vizModeCheckbox);
+  vizModeContainer.appendChild(vizModeLabel);
+  signalContainer.appendChild(vizModeContainer);
+
+  // Add vertical resolution control
+  const vResContainer = document.createElement('div');
+  vResContainer.style.marginBottom = '10px';
+
+  const vResLabel = document.createElement('label');
+  vResLabel.textContent = 'Vertical Resolution (m): ';
+  vResLabel.setAttribute('for', 'vertical-resolution');
+  vResContainer.appendChild(vResLabel);
+
+  const vResValue = document.createElement('span');
+  vResValue.id = 'vertical-resolution-value';
+  vResValue.textContent = signalPropagation.verticalResolution;
+  vResValue.style.marginLeft = '5px';
+  vResContainer.appendChild(vResValue);
+
+  const vResSlider = document.createElement('input');
+  vResSlider.type = 'range';
+  vResSlider.id = 'vertical-resolution';
+  vResSlider.min = '2';
+  vResSlider.max = '20';
+  vResSlider.step = '1';
+  vResSlider.value = signalPropagation.verticalResolution;
+  vResSlider.style.width = '100%';
+  vResSlider.style.marginTop = '5px';
+  vResSlider.addEventListener('input', () => {
+    signalPropagation.verticalResolution = parseInt(vResSlider.value);
+    vResValue.textContent = vResSlider.value;
+
+    // No need to recalculate immediately as this could be expensive
+  });
+  vResContainer.appendChild(vResSlider);
+  signalContainer.appendChild(vResContainer);
+
+  // Add opacity control for 3D visualization
+  const opacityContainer = document.createElement('div');
+  opacityContainer.style.marginBottom = '10px';
+
+  const opacityLabel = document.createElement('label');
+  opacityLabel.textContent = 'Volume Opacity: ';
+  opacityLabel.setAttribute('for', 'volume-opacity');
+  opacityContainer.appendChild(opacityLabel);
+
+  const opacityValue = document.createElement('span');
+  opacityValue.id = 'volume-opacity-value';
+  opacityValue.textContent = signalPropagation.volumeOpacity.toFixed(2);
+  opacityValue.style.marginLeft = '5px';
+  opacityContainer.appendChild(opacityValue);
+
+  const opacitySlider = document.createElement('input');
+  opacitySlider.type = 'range';
+  opacitySlider.id = 'volume-opacity';
+  opacitySlider.min = '0.05';
+  opacitySlider.max = '0.5';
+  opacitySlider.step = '0.01';
+  opacitySlider.value = signalPropagation.volumeOpacity;
+  opacitySlider.style.width = '100%';
+  opacitySlider.style.marginTop = '5px';
+  opacitySlider.addEventListener('input', () => {
+    const opacity = parseFloat(opacitySlider.value);
+    signalPropagation.volumeOpacity = opacity;
+    opacityValue.textContent = opacity.toFixed(2);
+    signalPropagation.updateVolumeOpacity(opacity);
+  });
+  opacityContainer.appendChild(opacitySlider);
+  signalContainer.appendChild(opacityContainer);
+
+  // Add max height control for 3D visualization
+  const maxHeightContainer = document.createElement('div');
+  maxHeightContainer.style.marginBottom = '10px';
+
+  const maxHeightLabel = document.createElement('label');
+  maxHeightLabel.textContent = 'Max Visualization Height (m): ';
+  maxHeightLabel.setAttribute('for', 'max-viz-height');
+  maxHeightContainer.appendChild(maxHeightLabel);
+
+  const maxHeightValue = document.createElement('span');
+  maxHeightValue.id = 'max-viz-height-value';
+  maxHeightValue.textContent = signalPropagation.maxVisualizationHeight;
+  maxHeightValue.style.marginLeft = '5px';
+  maxHeightContainer.appendChild(maxHeightValue);
+
+  const maxHeightSlider = document.createElement('input');
+  maxHeightSlider.type = 'range';
+  maxHeightSlider.id = 'max-viz-height';
+  maxHeightSlider.min = '20';
+  maxHeightSlider.max = '200';
+  maxHeightSlider.step = '10';
+  maxHeightSlider.value = signalPropagation.maxVisualizationHeight;
+  maxHeightSlider.style.width = '100%';
+  maxHeightSlider.style.marginTop = '5px';
+  maxHeightSlider.addEventListener('input', () => {
+    signalPropagation.maxVisualizationHeight = parseInt(maxHeightSlider.value);
+    maxHeightValue.textContent = maxHeightSlider.value;
+
+    // No need to recalculate immediately
+  });
+  maxHeightContainer.appendChild(maxHeightSlider);
+  signalContainer.appendChild(maxHeightContainer);
+
+  // Add button to apply 3D visualization settings
+  const apply3DSettingsButton = document.createElement('button');
+  apply3DSettingsButton.textContent = 'Apply 3D Settings';
+  apply3DSettingsButton.style.width = '100%';
+  apply3DSettingsButton.style.padding = '5px';
+  apply3DSettingsButton.style.marginTop = '10px';
+  apply3DSettingsButton.addEventListener('click', () => {
+    if (signalPropagation.is3DVisualizationActive) {
+      apply3DSettingsButton.textContent = 'Calculating...';
+      apply3DSettingsButton.disabled = true;
+
+      // Use setTimeout to allow UI to update before heavy calculation
+      setTimeout(() => {
+        signalPropagation.calculate3DSignalPropagation();
+        apply3DSettingsButton.textContent = 'Apply 3D Settings';
+        apply3DSettingsButton.disabled = false;
+      }, 100);
+    } else {
+      alert('Please enable 3D visualization first.');
+    }
+  });
+  signalContainer.appendChild(apply3DSettingsButton);
+
+  // Add explanatory note about performance
+  const perfNote = document.createElement('div');
+  perfNote.style.fontSize = '11px';
+  perfNote.style.fontStyle = 'italic';
+  perfNote.style.marginTop = '10px';
+  perfNote.textContent = 'Note: Lower resolutions and smaller visualization heights will improve performance.';
+  signalContainer.appendChild(perfNote);
 
   return signalContainer;
 }
@@ -1513,7 +1976,30 @@ function initSignalPropagation() {
   // Add click event listener for transmitter placement
   window.addEventListener('click', onMouseClick, false);
 
+  // Add hover event listener for signal strength information
+  window.addEventListener('mousemove', onmousemove, false);
+
+  // Create hover info box
+  createHoverInfoBox();
+
   console.log("Signal propagation system initialized");
+}
+
+// -------------- 3D -- Create hover info box -----------------
+function createHoverInfoBox() {
+  const infoBox = document.createElement('div');
+  infoBox.id = 'signal-info-box';
+  infoBox.style.position = 'absolute';
+  infoBox.style.display = 'none';
+  infoBox.style.background = 'rgba(0, 0, 0, 0.7)';
+  infoBox.style.color = 'white';
+  infoBox.style.padding = '10px';
+  infoBox.style.borderRadius = '5px';
+  infoBox.style.fontFamily = 'Arial, sans-serif';
+  infoBox.style.fontSize = '12px';
+  infoBox.style.pointerEvents = 'none'; // Don't block mouse events
+  infoBox.style.zIndex = '1000';
+  document.body.appendChild(infoBox);
 }
 
 // Handle mouse clicks for transmitter placement
@@ -1523,6 +2009,7 @@ function initSignalPropagation() {
 function onMouseClick(event) {
   // Only handle left clicks (button 0) and only if placement mode is enabled
   if (event.button !== 0 || !signalPropagation.placementModeEnabled) return;
+
 
   // Rest of the existing code...
   mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -1536,6 +2023,77 @@ function onMouseClick(event) {
     signalPropagation.placeTransmitter(point.x, point.z, signalPropagation.transmitterHeight);
     console.log(`Placed transmitter at (${point.x.toFixed(2)}, ${point.z.toFixed(2)}) with height ${signalPropagation.transmitterHeight}m`);
   }
+
+
+}
+
+function onmousemove(event) {
+  // Only show info if 3D visualization is active
+  if (!signalPropagation || !signalPropagation.is3DVisualizationActive) return;
+  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObject(ground);
+
+
+  // ------------------------------ 3D --------------------------------------
+
+  if (signalPropagation.volumeVisualizer) {
+    const intersects = raycaster.intersectObjects(signalPropagation.volumeCubes, false);
+
+    // Get info box element
+    const infoBox = document.getElementById('signal-info-box');
+
+    if (intersects.length > 0) {
+      // Get the first intersected cube
+      const cube = intersects[0].object;
+
+      // Position info box near mouse
+      infoBox.style.left = `${event.clientX + 15}px`;
+      infoBox.style.top = `${event.clientY + 15}px`;
+
+      // Get signal data from cube
+      const signalData = cube.userData;
+
+      // Format and display signal information
+      infoBox.innerHTML = `
+        <div><strong>Position:</strong> (${cube.position.x.toFixed(1)}, ${cube.position.y.toFixed(1)}, ${cube.position.z.toFixed(1)})</div>
+        <div><strong>Signal Strength:</strong> ${signalData.signalStrength.toFixed(2)} dBm</div>
+        <div><strong>Path Loss:</strong> ${signalData.pathLoss.toFixed(2)} dB</div>
+        <div><strong>Distance:</strong> ${signalData.distance.toFixed(2)}m</div>
+        <div><strong>Line of Sight:</strong> ${signalData.hasLOS ? 'Yes' : 'No'}</div>
+      `;
+
+      // Show info box
+      infoBox.style.display = 'block';
+
+      // Highlight the hovered cube
+      if (cube.material) {
+        // Store original opacity if not already stored
+        if (cube.userData._originalOpacity === undefined) {
+          cube.userData._originalOpacity = cube.material.opacity;
+        }
+
+        // Increase opacity for highlight effect
+        cube.material.opacity = Math.min(1.0, cube.userData._originalOpacity * 2);
+        cube.material.needsUpdate = true;
+      }
+    } else {
+      // Hide info box when not hovering over a cube
+      infoBox.style.display = 'none';
+
+      // Reset all cubes to original opacity
+      signalPropagation.volumeCubes.forEach(cube => {
+        if (cube.material && cube.userData._originalOpacity !== undefined) {
+          cube.material.opacity = cube.userData._originalOpacity;
+          cube.material.needsUpdate = true;
+          delete cube.userData._originalOpacity;
+        }
+      });
+    }
+  }
+
 }
 
 // Initialize signal propagation after scene loads
