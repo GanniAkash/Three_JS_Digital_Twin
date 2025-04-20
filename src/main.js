@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import axios from 'axios';
 import osmtogeojson from 'osmtogeojson';
+import { Pass } from 'three/examples/jsm/postprocessing/Pass.js';
 
 // Initialize the scene, camera, and renderer
 const scene = new THREE.Scene();
@@ -200,7 +201,7 @@ function centerSceneObjects(objectsArray) {
   boundingBox.getSize(size);
 
   // Adjust ground plane size based on the objects
-  const groundSize = Math.max(1500, Math.max(size.x, size.z) * 1.5);
+  const groundSize = Math.max(400, Math.max(size.x, size.z) * 1.05);
   ground.geometry.dispose(); // Clean up old geometry
   ground.geometry = new THREE.PlaneGeometry(groundSize, groundSize);
 
@@ -777,8 +778,8 @@ class SignalPropagation {
     // Add new properties for 3D visualization
     this.volumeVisualizer = null;
     this.is3DVisualizationActive = false;
-    this.verticalResolution = 5; // meters between vertical layers
-    this.maxVisualizationHeight = 50; // maximum height for 3D visualization
+    this.verticalResolution = 15; // meters between vertical layers
+    this.maxVisualizationHeight = 30; // maximum height for 3D visualization
     this.volumeOpacity = 0.15; // default opacity for volume cubes
     this.volumeCubes = []; // store references to cubes for updates
 
@@ -846,12 +847,12 @@ class SignalPropagation {
 
     // Store transmitter position
     this.transmitterPosition = new THREE.Vector3(x || 0, z || this.transmitterHeight, y || 0);
-    this.updateDirectionIndicator();
+    // this.updateDirectionIndicator();
     // Calculate and visualize signal propagation
-    this.calculateSignalPropagation();
+    // this.calculateSignalPropagation();
 
     if (this.is3DVisualizationActive) {
-      this.calculate3DSignalPropagation();
+      // this.calculate3DSignalPropagation();
     }
   }
 
@@ -954,17 +955,28 @@ class SignalPropagation {
     // Direction from point to transmitter
     const direction = new THREE.Vector3().subVectors(this.transmitterPosition, point).normalize();
 
+    this.raycaster.layers.set(0);
     // Set up raycaster
     this.raycaster.set(point, direction);
 
     // Distance to transmitter
     const distanceToTransmitter = point.distanceTo(this.transmitterPosition);
 
-    // Find intersections with buildings
-    const intersects = this.raycaster.intersectObjects(this.getBuildingObjects(), true);
+    // // Find intersections with buildings
+    // const intersects = this.raycaster.intersectObjects(this.getBuildingObjects(), true);
 
-    // If there's an intersection closer than the transmitter, it's NLOS
-    return !(intersects.length > 0 && intersects[0].distance < distanceToTransmitter);
+    const intersects = this.raycaster.intersectObjects(this.getBuildingObjects(), true).filter(obj => !obj.object.userData.ignoreRaycast);
+
+
+    try {
+      // Code that might throw an error4
+      // console.log( `intersectDistance: ${intersects[0].distance}, transmitterDistance: ${distanceToTransmitter}`);
+      return [!(intersects.length > 0 && intersects[0].distance < distanceToTransmitter), intersects];
+    } catch (error) {
+      // console.log("Somethings fishy.");
+      return [true, intersects]
+    }
+    // return !(intersects.length > 0 && intersects[0].distance < distanceToTransmitter); 
   }
 
   // Get all building objects in the scene for ray casting
@@ -995,7 +1007,7 @@ class SignalPropagation {
     if (!this.transmitterPosition) return;
 
     // Get ground plane dimensions
-    let groundSize = 2000; // Default size
+    let groundSize = 400; // Default size
     if (ground.geometry && ground.geometry.parameters) {
       groundSize = Math.max(
         ground.geometry.parameters.width,
@@ -1030,6 +1042,7 @@ class SignalPropagation {
 
     // For each grid point
     let vertexIndex = 0;
+    const lines = [];
 
     for (let zIndex = 0; zIndex < zPointCount; zIndex++) {
       const zVal = startZ + zIndex * this.gridResolution;
@@ -1039,10 +1052,13 @@ class SignalPropagation {
         const xVal = startX + xIndex * this.gridResolution;
 
         // Create grid point 1.5m above ground (typical mobile height)
-        const gridPoint = new THREE.Vector3(xVal, 1.5, zVal);
+        const gridPoint = new THREE.Vector3(xVal, 0, zVal);
 
         // Check if point has line-of-sight to transmitter
-        const hasLOS = this.checkLineOfSight(gridPoint);
+        let hasLOS = NaN;
+        let intersects = NaN;
+
+        [hasLOS, intersects] = this.checkLineOfSight(gridPoint);
 
         // Calculate 3D distance from point to transmitter
         const distance = gridPoint.distanceTo(this.transmitterPosition);
@@ -1052,6 +1068,13 @@ class SignalPropagation {
 
         // Calculate signal strength in dBm - Pass gridPoint to include directivity
         const signalStrength = this.calculateSignalStrength(pathLoss, gridPoint);
+        if (intersects[0]) {
+          lines.push(`${gridPoint.x}, ${gridPoint.y}, ${gridPoint.z}: ${signalStrength}, ${hasLOS}, ${distance}, ${pathLoss},${intersects[0].distance}, ${intersects[0].point}, ${intersects[0].instanceId}`);
+        }
+        else {
+          lines.push(`${gridPoint.x}, ${gridPoint.y}, ${gridPoint.z}: ${signalStrength}, ${hasLOS}, ${distance}, ${pathLoss},${intersects.distance}, ${intersects.point}, ${intersects.instanceId}`);
+        }
+
 
         // Store signal strength for this point
         row.push({
@@ -1093,6 +1116,8 @@ class SignalPropagation {
       this.signalGrid.push(row);
     }
 
+
+
     // Create the grid mesh
     gridGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     gridGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
@@ -1101,6 +1126,16 @@ class SignalPropagation {
 
     this.gridVisualizer = new THREE.Mesh(gridGeometry, this.gridMaterial);
     this.scene.add(this.gridVisualizer);
+
+    const textContent = lines.join('\n');
+    const blob = new Blob([textContent], { type: 'text/plain' });
+
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'vectors2d.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 
     console.log('Signal propagation calculation complete');
 
@@ -1345,7 +1380,7 @@ class SignalPropagation {
     if (!this.transmitterPosition) return;
 
     // Get ground plane dimensions
-    let groundSize = 2000; // Default size
+    let groundSize = 400; // Default size
     if (ground.geometry && ground.geometry.parameters) {
       groundSize = Math.max(
         ground.geometry.parameters.width,
@@ -1363,9 +1398,7 @@ class SignalPropagation {
     const endX = halfGrid;
     const endZ = halfGrid;
 
-    // Create group for all volume cubes
-    this.volumeVisualizer = new THREE.Group();
-    this.scene.add(this.volumeVisualizer);
+    
 
     // Find maximum building height in the scene to determine visualization height
     let maxBuildingHeight = 0;
@@ -1378,7 +1411,7 @@ class SignalPropagation {
     });
 
     // Set max visualization height based on buildings or use default if no buildings
-    this.maxVisualizationHeight = Math.max(maxBuildingHeight * 1.5, this.maxVisualizationHeight);
+    this.maxVisualizationHeight = Math.max(maxBuildingHeight, this.maxVisualizationHeight);
     console.log(`Maximum visualization height: ${this.maxVisualizationHeight}m`);
 
     // Determine number of points in each dimension based on resolution
@@ -1389,19 +1422,23 @@ class SignalPropagation {
     console.log(`Calculating 3D signal propagation on a ${xPointCount}x${yPointCount}x${zPointCount} grid...`);
     console.log(`This will create ${xPointCount * yPointCount * zPointCount} cubes - high resolution may impact performance.`);
 
-    // Optimize: create a single geometry for the cube
-    const cubeGeometry = new THREE.BoxGeometry(
-      this.gridResolution * 0.9, // Slightly smaller than grid size
-      this.verticalResolution * 0.9,
-      this.gridResolution * 0.9
-    );
 
     // Counter for number of cubes created
     let cubeCount = 0;
-
+    const lines = []; // To collect each line
+    const lis_colors = [];
+    const lis_opacity = [];
+    const xVals = [];
+    const yVals = [];
+    const zVals = [];
+    const isLos = [];
+    const lis_signalStrength = [];
+    const lis_pathLoss = [];
+    const lis_distance = [];
+    const lis_intersects = [];
     // For each grid point in 3D space
     for (let yIndex = 0; yIndex < yPointCount; yIndex++) {
-      const yVal = yIndex * this.verticalResolution + (this.verticalResolution / 2);
+      const yVal = yIndex * this.verticalResolution
 
       // Skip points below ground level
       if (yVal < 0) continue;
@@ -1419,7 +1456,9 @@ class SignalPropagation {
           if (this.isPointInsideBuilding(gridPoint)) continue;
 
           // Check if point has line-of-sight to transmitter
-          const hasLOS = this.checkLineOfSight(gridPoint);
+          let hasLOS = NaN;
+          let intersects =  NaN;
+          [hasLOS, intersects] =  this.checkLineOfSight(gridPoint);
 
           // Calculate 3D distance from point to transmitter
           const distance = gridPoint.distanceTo(this.transmitterPosition);
@@ -1430,6 +1469,14 @@ class SignalPropagation {
           // Calculate signal strength in dBm including directivity
           const signalStrength = this.calculateSignalStrength(pathLoss, gridPoint);
 
+          if (intersects[0]) {
+            lines.push(`${gridPoint.x}, ${gridPoint.y}, ${gridPoint.z}: ${signalStrength}, ${hasLOS}, ${distance}, ${pathLoss},${intersects[0].distance}, ${intersects[0].point}, ${intersects[0].instanceId}`);
+          }
+          else {
+            lines.push(`${gridPoint.x}, ${gridPoint.y}, ${gridPoint.z}: ${signalStrength}, ${hasLOS}, ${distance}, ${pathLoss},${intersects.distance}, ${intersects.point}, ${intersects.instanceId}`);
+          }
+
+
           // Get color for this signal strength
           const color = this.getColorForSignalStrength(signalStrength);
 
@@ -1438,44 +1485,83 @@ class SignalPropagation {
             (SIGNAL_CONSTANTS.maxSignalStrength - SIGNAL_CONSTANTS.minSignalStrength);
           let opacity = this.volumeOpacity * (0.5 + normalizedStrength * 0.5);
 
-          // Create cube material
-          const cubeMaterial = new THREE.MeshBasicMaterial({
-            color: color,
-            transparent: true,
-            opacity: opacity,
-            depthWrite: false // Important for transparent objects
-          });
-
-          // Create mesh with shared geometry and unique material
-          const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
-
-          // Position cube
-          cube.position.set(xVal, yVal, zVal);
-
-          // Store signal strength as a property for interaction
-          cube.userData = {
-            signalStrength: signalStrength,
-            hasLOS: hasLOS,
-            distance: distance,
-            pathLoss: pathLoss
-          };
-
-          // Store reference to cube for updates
-          this.volumeCubes.push(cube);
-
-          // Add to group
-          this.volumeVisualizer.add(cube);
-
-          // Increment counter
-          cubeCount++;
-
-          // Display progress periodically to keep UI responsive for large grids
-          if (cubeCount % 1000 === 0) {
-            console.log(`Created ${cubeCount} cubes...`);
-          }
+          lis_opacity.push(opacity);
+          isLos.push(hasLOS);
+          xVals.push(xVal);
+          yVals.push(yVal);
+          zVals.push(zVal);
+          lis_distance.push(distance);
+          lis_pathLoss.push(pathLoss);
+          lis_signalStrength.push(signalStrength);
+          lis_colors.push(color);
+          lis_intersects.push(intersects);
+          
         }
       }
     }
+
+    cubeCount = 0;
+
+
+    // Create group for all volume cubes
+    this.volumeVisualizer = new THREE.Group();
+    this.scene.add(this.volumeVisualizer);
+
+    // Optimize: create a single geometry for the cube
+    const cubeGeometry = new THREE.BoxGeometry(
+      this.gridResolution * 0.9, // Slightly smaller than grid size
+      this.verticalResolution * 0.9,
+      this.gridResolution * 0.9
+    );
+
+    for (let i = 0; i < lis_colors.length; i++) {
+      // Create cube material
+      const cubeMaterial = new THREE.MeshBasicMaterial({
+        color: lis_colors[i],
+        transparent: true,
+        opacity: lis_opacity[i],
+        depthWrite: false // Important for transparent objects
+      });
+
+      // Create mesh with shared geometry and unique material
+      const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+
+      cube.userData.ignoreRaycast = true;
+      // Position cube
+      cube.position.set(xVals[i], yVals[i], zVals[i]);
+
+      // Store signal strength as a property for interaction
+      cube.userData = {
+        signalStrength: lis_signalStrength[i],
+        hasLOS: isLos[i],
+        distance: lis_distance[i],
+        pathLoss: lis_pathLoss[i]
+      };
+
+      // Store reference to cube for updates
+      this.volumeCubes.push(cube);
+
+      // Add to group
+      this.volumeVisualizer.add(cube);
+
+      // Increment counter
+      cubeCount++;
+
+      // Display progress periodically to keep UI responsive for large grids
+      if (cubeCount % 1000 === 0) {
+        console.log(`Created ${cubeCount} cubes...`);
+      }
+    }
+
+    const textContent = lines.join('\n');
+    const blob = new Blob([textContent], { type: 'text/plain' });
+
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'vectors.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 
     console.log(`3D signal propagation visualization complete. Created ${cubeCount} cubes.`);
 
