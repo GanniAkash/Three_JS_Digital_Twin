@@ -186,12 +186,14 @@ function centerSceneObjects(objectsArray) {
 
   if (boundingBox.isEmpty()) return;
 
-  // Get the center of the bounding box
+  // Get the center of the bounding box but preserve Y (height)
   const center = new THREE.Vector3();
   boundingBox.getCenter(center);
+  center.y = 0; // Don't move objects vertically
 
   // Apply the offset to each object
   objectsArray.forEach(object => {
+    // Only move in X and Z to keep objects on the ground
     object.position.x -= center.x;
     object.position.z -= center.z;
   });
@@ -201,16 +203,19 @@ function centerSceneObjects(objectsArray) {
   boundingBox.getSize(size);
 
   // Adjust ground plane size based on the objects
-  const groundSize = Math.max(400, Math.max(size.x, size.z) * 1.05);
+  const groundSize = Math.max(400, Math.max(size.x, size.z) * 1.2);
   ground.geometry.dispose(); // Clean up old geometry
   ground.geometry = new THREE.PlaneGeometry(groundSize, groundSize);
 
   // Position camera to view the entire scene
-  const maxDimension = Math.max(size.x, size.z, size.y * 2);
-  camera.position.set(maxDimension * 0.8, maxDimension * 0.8, maxDimension * 0.8);
+  const maxDimension = Math.max(size.x, size.z);
+  camera.position.set(maxDimension * 0.6, maxDimension * 0.5, maxDimension * 0.6);
   camera.lookAt(0, 0, 0);
-  controls.target.set(0, 0, 0);
-  controls.update();
+  
+  if (controls) {
+    controls.target.set(0, 0, 0);
+    controls.update();
+  }
 }
 
 
@@ -270,7 +275,7 @@ function centerSceneObjects(objectsArray) {
 // }
 
 // Function to create a 3D building
-function createBuildingWithRoof(feature, toLocalCoords, buildingGroup = null) {
+function createHollowBuildingWithRoof(feature, toLocalCoords, buildingGroup = null) {
   if (!buildingGroup) {
     buildingGroup = new THREE.Group();
   }
@@ -312,47 +317,217 @@ function createBuildingWithRoof(feature, toLocalCoords, buildingGroup = null) {
     buildingType = 'retail';
   }
 
-  const wallMaterial = buildingMaterials[buildingType].wall;
-  const roofMaterial = buildingMaterials[buildingType].roof;
+  // Clone materials to avoid shared material modifications
+  const wallMaterial = buildingMaterials[buildingType].wall.clone();
+  const roofMaterial = buildingMaterials[buildingType].roof.clone();
+  
+  // Make materials double-sided for inside viewing
+  wallMaterial.side = THREE.DoubleSided;
+  roofMaterial.side = THREE.DoubleSided;
 
-  // Create the main extruded building
+  // Alternative approach: Use ExtrudeGeometry but set the opacity of interior faces
+  // This creates a single solid mesh that looks better from outside but is still navigable
   const extrudeSettings = {
     depth: height,
     bevelEnabled: false
   };
+  
+  // Create the main building geometry
   const buildingGeometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
   const buildingMesh = new THREE.Mesh(buildingGeometry, wallMaterial);
-  buildingMesh.rotation.x = -Math.PI / 2; // Rotate to stand upright
+  
+  // Make building traversable by camera by setting renderOrder and depthWrite
+  buildingMesh.renderOrder = 1;
+  wallMaterial.depthWrite = false;
+  wallMaterial.transparent = true;
+  wallMaterial.opacity = 0.95; // Almost solid but will allow camera through
+  
+  // Rotate to stand upright
+  buildingMesh.rotation.x = -Math.PI / 2;
   buildingMesh.position.y = 0; // Place on ground
   buildingMesh.castShadow = true;
   buildingMesh.receiveShadow = true;
-
-  // Create the roof as a separate mesh
+  
+  // Create the roof (separate piece that precisely fits on top)
   const roofShape = new THREE.ShapeGeometry(shape);
   const roofMesh = new THREE.Mesh(roofShape, roofMaterial);
-
-  // Rotate and position the roof on top of the building
+  
+  // Position the roof on top of the building
   roofMesh.rotation.x = -Math.PI / 2;
-  roofMesh.position.y = height;  // Place at the top of the building
+  roofMesh.position.y = height;
   roofMesh.castShadow = true;
   roofMesh.receiveShadow = true;
-
+  
   // Add both to the group
   buildingGroup.add(buildingMesh);
   buildingGroup.add(roofMesh);
 
-  // Optional: Add outlines to the building
-  if (height > 0) {
-    const edges = new THREE.EdgesGeometry(buildingGeometry, 15);
-    const line = new THREE.LineSegments(
-      edges,
-      new THREE.LineBasicMaterial({ color: 0x000000 })
-    );
-    line.rotation.x = -Math.PI / 2;
-    buildingGroup.add(line);
-  }
+  // Add outlines to make the structure clearer
+  const edges = new THREE.EdgesGeometry(buildingGeometry);
+  const line = new THREE.LineSegments(
+    edges,
+    new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 1 })
+  );
+  line.rotation.x = -Math.PI / 2;
+  buildingGroup.add(line);
 
   return buildingGroup;
+}
+
+
+function setupBuildingMaterials() {
+  // Modify all materials in the buildingMaterials dictionary
+  for (const type in buildingMaterials) {
+    if (buildingMaterials.hasOwnProperty(type)) {
+      // Set up wall material for transparent but solid appearance
+      buildingMaterials[type].wall.transparent = true;
+      buildingMaterials[type].wall.opacity = 0.95; // Almost completely solid
+      buildingMaterials[type].wall.side = THREE.DoubleSided;
+      buildingMaterials[type].wall.depthWrite = false; // This allows camera to pass through
+      
+      // Set up roof material
+      buildingMaterials[type].roof.side = THREE.DoubleSided;
+      buildingMaterials[type].roof.transparent = true;
+      buildingMaterials[type].roof.opacity = 0.95;
+      buildingMaterials[type].roof.depthWrite = false;
+    }
+  }
+}
+
+// Update the createBuildings function 
+function createBuildings(geojson) {
+  if (!geojson) return;
+
+  console.log('Processing GeoJSON features:', geojson.features.length);
+
+  // Set up our materials to allow camera passage
+  setupBuildingMaterials();
+
+  // Reference point for local coordinates
+  let referencePoint = null;
+
+  // Find the first valid coordinate to use as reference
+  for (const feature of geojson.features) {
+    if (feature.geometry) {
+      if (feature.geometry.type === 'Polygon' && feature.geometry.coordinates[0].length > 0) {
+        referencePoint = { lon: feature.geometry.coordinates[0][0][0], lat: feature.geometry.coordinates[0][0][1] };
+        break;
+      } else if (feature.geometry.type === 'LineString' && feature.geometry.coordinates.length > 0) {
+        referencePoint = { lon: feature.geometry.coordinates[0][0], lat: feature.geometry.coordinates[0][1] };
+        break;
+      }
+    }
+  }
+
+  if (!referencePoint) {
+    console.error('No reference point found in GeoJSON data');
+    return;
+  }
+
+  console.log('Using reference point:', referencePoint);
+
+  // Function to convert lon/lat to local coordinates
+  const toLocalCoords = (lon, lat) => {
+    // Scale factors (approximate meters per degree at equator)
+    const lonScale = 111320 * Math.cos(referencePoint.lat * Math.PI / 180);
+    const latScale = 110540;
+
+    return {
+      x: (lon - referencePoint.lon) * lonScale,
+      z: (lat - referencePoint.lat) * latScale
+    };
+  };
+
+  // Store all geometries for proper centering
+  const allObjects = [];
+
+  // Process each feature
+  geojson.features.forEach(feature => {
+    if (!feature.geometry) return;
+
+    const properties = feature.properties || {};
+    const objectGroup = new THREE.Group(); // Group for this feature
+
+    // Process building (Polygon)
+    if (feature.geometry.type === 'Polygon' && properties.building) {
+      // Use our hollow building with roof function
+      createHollowBuildingWithRoof(feature, toLocalCoords, objectGroup);
+      scene.add(objectGroup);
+      allObjects.push(objectGroup);
+    }
+    // Process roads (LineString or Polygon)
+    else if (properties.highway) {
+      if (feature.geometry.type === 'LineString' || feature.geometry.type === 'Polygon') {
+        createRoad(feature, toLocalCoords);
+      }
+    }
+  });
+
+  // Center all objects together
+  centerSceneObjects(allObjects);
+  
+  // Set up camera controls after everything is loaded
+  setupCameraControls();
+}
+
+
+function createBuildingWalls(points, height, material) {
+  const walls = [];
+  
+  // Create a wall for each edge of the building footprint
+  for (let i = 0; i < points.length - 1; i++) {
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    
+    // Skip very close points
+    if (p1.distanceTo(p2) < 0.1) continue;
+    
+    // Create wall geometry (a simple plane)
+    const wallWidth = p1.distanceTo(p2);
+    const wallGeometry = new THREE.PlaneGeometry(wallWidth, height, 1, 1);
+    
+    const wall = new THREE.Mesh(wallGeometry, material);
+    
+    // Position and rotate the wall
+    wall.position.set(
+      (p1.x + p2.x) / 2,  // Center of the wall in X
+      height / 2,         // Half height (as PlaneGeometry is centered)
+      (p1.y + p2.y) / 2   // Center of the wall in Z
+    );
+    
+    // Calculate the rotation angle
+    const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+    wall.rotation.y = -angle;  // Rotate around Y axis
+    
+    walls.push(wall);
+  }
+  
+  // Connect the last point to the first point
+  if (points.length > 2) {
+    const p1 = points[points.length - 1];
+    const p2 = points[0];
+    
+    // Skip very close points
+    if (p1.distanceTo(p2) > 0.1) {
+      const wallWidth = p1.distanceTo(p2);
+      const wallGeometry = new THREE.PlaneGeometry(wallWidth, height, 1, 1);
+      
+      const wall = new THREE.Mesh(wallGeometry, material);
+      
+      wall.position.set(
+        (p1.x + p2.x) / 2,
+        height / 2,
+        (p1.y + p2.y) / 2
+      );
+      
+      const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+      wall.rotation.y = -angle;
+      
+      walls.push(wall);
+    }
+  }
+  
+  return walls;
 }
 // Update or replace the original createBuilding function call to use this new function
 // function createBuildings(geojson) {
@@ -406,91 +581,156 @@ function createBuildingWithRoof(feature, toLocalCoords, buildingGroup = null) {
 //   });
 
 // Update the building creation function to handle different geometry types
-function createBuildings(geojson) {
-  if (!geojson) return;
+// function createBuildings(geojson) {
+//   if (!geojson) return;
 
-  console.log('Processing GeoJSON features:', geojson.features.length);
+//   console.log('Processing GeoJSON features:', geojson.features.length);
 
-  // Group features by type for debugging
-  const buildings = [];
-  const roads = [];
-  const others = [];
+//   // Group features by type for debugging
+//   const buildings = [];
+//   const roads = [];
+//   const others = [];
 
-  geojson.features.forEach(feature => {
-    if (feature.properties && feature.properties.building) {
-      buildings.push(feature);
-    } else if (feature.properties && feature.properties.highway) {
-      roads.push(feature);
-    } else {
-      others.push(feature);
-    }
-  });
+//   geojson.features.forEach(feature => {
+//     if (feature.properties && feature.properties.building) {
+//       buildings.push(feature);
+//     } else if (feature.properties && feature.properties.highway) {
+//       roads.push(feature);
+//     } else {
+//       others.push(feature);
+//     }
+//   });
 
-  console.log(`Found ${buildings.length} buildings, ${roads.length} roads, ${others.length} other features`);
+//   console.log(`Found ${buildings.length} buildings, ${roads.length} roads, ${others.length} other features`);
 
-  // Reference point for local coordinates
-  let referencePoint = null;
+//   // Reference point for local coordinates
+//   let referencePoint = null;
 
-  // Find the first valid coordinate to use as reference
-  for (const feature of geojson.features) {
-    if (feature.geometry) {
-      if (feature.geometry.type === 'Polygon' && feature.geometry.coordinates[0].length > 0) {
-        referencePoint = { lon: feature.geometry.coordinates[0][0][0], lat: feature.geometry.coordinates[0][0][1] };
-        break;
-      } else if (feature.geometry.type === 'LineString' && feature.geometry.coordinates.length > 0) {
-        referencePoint = { lon: feature.geometry.coordinates[0][0], lat: feature.geometry.coordinates[0][1] };
-        break;
-      }
-    }
-  }
+//   // Find the first valid coordinate to use as reference
+//   for (const feature of geojson.features) {
+//     if (feature.geometry) {
+//       if (feature.geometry.type === 'Polygon' && feature.geometry.coordinates[0].length > 0) {
+//         referencePoint = { lon: feature.geometry.coordinates[0][0][0], lat: feature.geometry.coordinates[0][0][1] };
+//         break;
+//       } else if (feature.geometry.type === 'LineString' && feature.geometry.coordinates.length > 0) {
+//         referencePoint = { lon: feature.geometry.coordinates[0][0], lat: feature.geometry.coordinates[0][1] };
+//         break;
+//       }
+//     }
+//   }
 
-  if (!referencePoint) {
-    console.error('No reference point found in GeoJSON data');
-    return;
-  }
+//   if (!referencePoint) {
+//     console.error('No reference point found in GeoJSON data');
+//     return;
+//   }
 
-  console.log('Using reference point:', referencePoint);
+//   console.log('Using reference point:', referencePoint);
 
-  // Function to convert lon/lat to local coordinates
-  const toLocalCoords = (lon, lat) => {
-    // Scale factors (approximate meters per degree at equator)
-    const lonScale = 111320 * Math.cos(referencePoint.lat * Math.PI / 180);
-    const latScale = 110540;
+//   // Function to convert lon/lat to local coordinates
+//   const toLocalCoords = (lon, lat) => {
+//     // Scale factors (approximate meters per degree at equator)
+//     const lonScale = 111320 * Math.cos(referencePoint.lat * Math.PI / 180);
+//     const latScale = 110540;
 
-    return {
-      x: (lon - referencePoint.lon) * lonScale,
-      z: (lat - referencePoint.lat) * latScale
-    };
-  };
+//     return {
+//       x: (lon - referencePoint.lon) * lonScale,
+//       z: (lat - referencePoint.lat) * latScale
+//     };
+//   };
 
-  // Store all geometries for proper centering
-  const allObjects = [];
+//   // Store all geometries for proper centering
+//   const allObjects = [];
 
-  // Process each feature
-  geojson.features.forEach(feature => {
-    if (!feature.geometry) return;
+//   // First, set up our materials to be double-sided
+//   makeAllMaterialsDoubleSided();
 
-    const properties = feature.properties || {};
-    const objectGroup = new THREE.Group(); // Group for this feature
+//   // Process each feature
+//   geojson.features.forEach(feature => {
+//     if (!feature.geometry) return;
 
-    // Process building (Polygon)
-    if (feature.geometry.type === 'Polygon' && properties.building) {
-      createBuildingWithRoof(feature, toLocalCoords, objectGroup);
-      scene.add(objectGroup);
-      allObjects.push(objectGroup);
-    }
-    // Process roads (LineString or Polygon)
-    else if (properties.highway) {
-      if (feature.geometry.type === 'LineString' || feature.geometry.type === 'Polygon') {
-        createRoad(feature, toLocalCoords);
-      }
-    }
-  });
+//     const properties = feature.properties || {};
+//     const objectGroup = new THREE.Group(); // Group for this feature
 
-  // Center all objects together
-  centerSceneObjects(allObjects);
+//     // Process building (Polygon)
+//     if (feature.geometry.type === 'Polygon' && properties.building) {
+//       // Use our hollow building with roof function
+//       createHollowBuildingWithRoof(feature, toLocalCoords, objectGroup);
+//       scene.add(objectGroup);
+//       allObjects.push(objectGroup);
+//     }
+//     // Process roads (LineString or Polygon)
+//     else if (properties.highway) {
+//       if (feature.geometry.type === 'LineString' || feature.geometry.type === 'Polygon') {
+//         createRoad(feature, toLocalCoords);
+//       }
+//     }
+//   });
+
+//   // Center all objects together
+//   centerSceneObjects(allObjects);
+  
+//   // Set up camera controls after everything is loaded
+//   setupCameraControls();
+// }
+
+
+function setupCameraControls() {
+  // Assuming you're using OrbitControls
+  controls.minDistance = 1; // Allow camera to get very close to objects
+  controls.maxDistance = 1500; // Maximum zoom out distance
+  
+  // Enable damping for smoother camera movements
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.25;
+  
+  // Allow full rotations
+  controls.maxPolarAngle = Math.PI;
+  
+  // Optional: Increase movement speed for easier navigation
+  controls.panSpeed = 1.5;
+  controls.rotateSpeed = 1.2;
+  controls.zoomSpeed = 1.2;
 }
 
+
+
+function makeAllMaterialsDoubleSided() {
+  // Clone and modify all materials in the buildingMaterials dictionary
+  for (const type in buildingMaterials) {
+    if (buildingMaterials.hasOwnProperty(type)) {
+      // Clone to avoid affecting other instances
+      const wallMaterial = buildingMaterials[type].wall.clone();
+      const roofMaterial = buildingMaterials[type].roof.clone();
+      
+      // Set to double-sided
+      wallMaterial.side = THREE.DoubleSided;
+      roofMaterial.side = THREE.DoubleSided;
+      
+      // Replace the originals
+      buildingMaterials[type].wall = wallMaterial;
+      buildingMaterials[type].roof = roofMaterial;
+    }
+  }
+  
+  // Also set the road material to be double-sided
+  roadMaterial.side = THREE.DoubleSided;
+}
+
+
+function initSceneForHollowBuildings() {
+  // Set renderer parameters to work better with our setup
+  if (renderer) {
+    renderer.localClippingEnabled = true;
+    renderer.sortObjects = true; // Make sure transparent objects render correctly
+  }
+  
+  // Setup camera controls
+  setupCameraControls();
+  
+  // Make ground plane slightly transparent for better navigation
+  ground.material.transparent = true;
+  ground.material.opacity = 0.9;
+}
 
 // Center the scene if you have that function
 //   if (typeof centerScene === 'function') {
@@ -609,7 +849,6 @@ function createRoad(feature, toLocalCoords) {
     scene.add(road);
   }
 }
-
 // Add loading indicator
 const loadingElement = document.createElement('div');
 loadingElement.id = 'loading';
@@ -693,6 +932,9 @@ async function loadOSMData(location) {
       // Fetch and create new buildings
       const geojsonData = await fetchOSMData(boundingBox);
       createBuildings(geojsonData);
+      // Call this function during initialization
+      // makeAllMaterialsDoubleSided();f
+      initSceneForHollowBuildings();
 
       // Add info text about the loaded area
       const infoText = document.createElement('div');
@@ -1142,6 +1384,10 @@ class SignalPropagation {
     // Add legend for signal strength colors
     this.createSignalLegend();
 
+    const buildings = this.getBuildingObjects();
+    const buildingMeshes = buildings.filter(obj => obj instanceof THREE.Mesh);
+    this.addIndoorSignalCubes(buildingMeshes);
+
     // After completing 2D visualization, also update 3D if active
     if (this.is3DVisualizationActive) {
       this.calculate3DSignalPropagation();
@@ -1398,7 +1644,7 @@ class SignalPropagation {
     const endX = halfGrid;
     const endZ = halfGrid;
 
-    
+
 
     // Find maximum building height in the scene to determine visualization height
     let maxBuildingHeight = 0;
@@ -1457,8 +1703,8 @@ class SignalPropagation {
 
           // Check if point has line-of-sight to transmitter
           let hasLOS = NaN;
-          let intersects =  NaN;
-          [hasLOS, intersects] =  this.checkLineOfSight(gridPoint);
+          let intersects = NaN;
+          [hasLOS, intersects] = this.checkLineOfSight(gridPoint);
 
           // Calculate 3D distance from point to transmitter
           const distance = gridPoint.distanceTo(this.transmitterPosition);
@@ -1495,7 +1741,7 @@ class SignalPropagation {
           lis_signalStrength.push(signalStrength);
           lis_colors.push(color);
           lis_intersects.push(intersects);
-          
+
         }
       }
     }
@@ -1569,6 +1815,118 @@ class SignalPropagation {
     this.toggleVisualizationMode(false);
   }
 
+  addIndoorSignalCubes(buildingMeshes, cubeSize = 5) {
+    const signalSource = this.transmitterPosition;
+
+
+  
+    buildingMeshes.forEach(building => {
+      const bbox = new THREE.Box3().setFromObject(building);
+      const min = bbox.min;
+      const max = bbox.max;
+  
+      for (let x = min.x; x < max.x; x += cubeSize) {
+        for (let y = min.y; y < max.y; y += cubeSize) {
+          for (let z = min.z; z < max.z; z += cubeSize) {
+            const point = new THREE.Vector3(
+              x + cubeSize / 2,
+              y + cubeSize / 2,
+              z + cubeSize / 2
+            );
+  
+            if (this.isPointInsideMesh(point, building)) {
+              const distance = point.distanceTo(signalSource);
+              const strength = this.computeSignalStrength(distance, point);
+              const color = this.getColorForSignalStrength(strength);
+  
+              const cubeGeo = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+              const cubeMat = new THREE.MeshLambertMaterial({
+                color,
+                transparent: true,
+                opacity: 0.5,
+              });
+  
+              const cube = new THREE.Mesh(cubeGeo, cubeMat);
+              cube.position.copy(point);
+              scene.add(cube);
+            }
+          }
+        }
+      }
+    });
+  }
+  
+  
+  // Utility to check if a point is inside a mesh using raycasting
+  isPointInsideMesh(point, mesh) {
+    const direction = new THREE.Vector3(1, 0, 0); // Arbitrary
+    const raycaster = new THREE.Raycaster(point, direction, 0, 10000);
+    const intersects = raycaster.intersectObject(mesh, true);
+    return intersects.length % 2 === 1;
+  }
+  
+  // Dummy signal strength computation
+  computeSignalStrength(distance, point) {
+
+    const path_loss = this.calculatePathLoss(distance, false);
+    const pl_b = this.calculateSignalStrength(path_loss, point);
+
+    const pl_tw = 5 - (10*Math.log10( (0.3*Math.pow(10, -(2+0.2*SIGNAL_CONSTANTS.frequency)/10)) + (0.7*Math.pow(10, -(5+4*SIGNAL_CONSTANTS.frequency)/10 ) ) ));
+    // console.dir(point);
+    // console.dir(this.transmitterPosition);
+    const ground_point = new THREE.Vector3(
+      point.x,
+      0,
+      point.z
+    );
+    const ground_trans = new THREE.Vector3(
+      this.transmitterPosition.x,
+      0,
+      this.transmitterPosition.z
+    );
+    const direction = new THREE.Vector3().subVectors(ground_trans, ground_point).normalize();
+
+    this.raycaster.layers.set(0);
+    // Set up raycaster
+    this.raycaster.set(ground_point, direction);
+
+
+
+    // // Find intersections with buildings
+    // const intersects = this.raycaster.intersectObjects(this.getBuildingObjects(), true);
+
+    const intersects = this.raycaster.intersectObjects(this.getBuildingObjects(), true).filter(obj => !obj.object.userData.ignoreRaycast);
+    // console.dir(intersects)
+
+    let d2d_in = 0;
+    try {
+      d2d_in = intersects[0].distance;
+    } catch (error) {
+      d2d_in = 0;
+    }
+    
+
+    
+    const pl_in = 0.5*d2d_in;
+
+    const path_loss_total = pl_b + pl_in + pl_tw;
+
+    const strength = this.calculateSignalStrength(path_loss_total, point);
+
+    
+    return strength;
+  }
+  
+  // Convert signal strength to color
+  getColorFromSignal(strength) {
+    const minStrength = -90;
+    const maxStrength = -30;
+    const t = (strength - minStrength) / (maxStrength - minStrength);
+    const r = Math.max(0, 1.5 * (1 - t));
+    const g = Math.max(0, 1.5 * t);
+    return new THREE.Color(r, g, 0);
+  }
+  
 
 
 
