@@ -81,7 +81,7 @@ scene.add(ground);
 const buildingMaterials = {
   residential: {
     wall: new THREE.MeshStandardMaterial({
-      color: 0xe8e0d8,
+      color: 0xeeeeee,
       roughness: 0.7,
       metalness: 0.1
     }),
@@ -129,7 +129,7 @@ const buildingMaterials = {
   },
   default: {
     wall: new THREE.MeshStandardMaterial({
-      color: 0xff0000,
+      color: 0xeeeeee,
       roughness: 0.7,
       metalness: 0.1
     }),
@@ -211,7 +211,7 @@ function centerSceneObjects(objectsArray) {
   const maxDimension = Math.max(size.x, size.z);
   camera.position.set(maxDimension * 0.6, maxDimension * 0.5, maxDimension * 0.6);
   camera.lookAt(0, 0, 0);
-  
+
   if (controls) {
     controls.target.set(0, 0, 0);
     controls.update();
@@ -320,7 +320,7 @@ function createHollowBuildingWithRoof(feature, toLocalCoords, buildingGroup = nu
   // Clone materials to avoid shared material modifications
   const wallMaterial = buildingMaterials[buildingType].wall.clone();
   const roofMaterial = buildingMaterials[buildingType].roof.clone();
-  
+
   // Make materials double-sided for inside viewing
   wallMaterial.side = THREE.DoubleSided;
   roofMaterial.side = THREE.DoubleSided;
@@ -331,33 +331,33 @@ function createHollowBuildingWithRoof(feature, toLocalCoords, buildingGroup = nu
     depth: height,
     bevelEnabled: false
   };
-  
+
   // Create the main building geometry
   const buildingGeometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
   const buildingMesh = new THREE.Mesh(buildingGeometry, wallMaterial);
-  
+
   // Make building traversable by camera by setting renderOrder and depthWrite
   buildingMesh.renderOrder = 1;
   wallMaterial.depthWrite = false;
   wallMaterial.transparent = true;
   wallMaterial.opacity = 0.95; // Almost solid but will allow camera through
-  
+
   // Rotate to stand upright
   buildingMesh.rotation.x = -Math.PI / 2;
   buildingMesh.position.y = 0; // Place on ground
   buildingMesh.castShadow = true;
   buildingMesh.receiveShadow = true;
-  
+
   // Create the roof (separate piece that precisely fits on top)
   const roofShape = new THREE.ShapeGeometry(shape);
   const roofMesh = new THREE.Mesh(roofShape, roofMaterial);
-  
+
   // Position the roof on top of the building
   roofMesh.rotation.x = -Math.PI / 2;
   roofMesh.position.y = height;
   roofMesh.castShadow = true;
   roofMesh.receiveShadow = true;
-  
+
   // Add both to the group
   buildingGroup.add(buildingMesh);
   buildingGroup.add(roofMesh);
@@ -384,7 +384,7 @@ function setupBuildingMaterials() {
       buildingMaterials[type].wall.opacity = 0.95; // Almost completely solid
       buildingMaterials[type].wall.side = THREE.DoubleSided;
       buildingMaterials[type].wall.depthWrite = false; // This allows camera to pass through
-      
+
       // Set up roof material
       buildingMaterials[type].roof.side = THREE.DoubleSided;
       buildingMaterials[type].roof.transparent = true;
@@ -465,7 +465,7 @@ function createBuildings(geojson) {
 
   // Center all objects together
   centerSceneObjects(allObjects);
-  
+
   // Set up camera controls after everything is loaded
   setupCameraControls();
 }
@@ -473,222 +473,79 @@ function createBuildings(geojson) {
 
 function createBuildingWalls(points, height, material) {
   const walls = [];
-  
+
   // Create a wall for each edge of the building footprint
   for (let i = 0; i < points.length - 1; i++) {
     const p1 = points[i];
     const p2 = points[i + 1];
-    
+
     // Skip very close points
     if (p1.distanceTo(p2) < 0.1) continue;
-    
+
     // Create wall geometry (a simple plane)
     const wallWidth = p1.distanceTo(p2);
     const wallGeometry = new THREE.PlaneGeometry(wallWidth, height, 1, 1);
-    
+
     const wall = new THREE.Mesh(wallGeometry, material);
-    
+
     // Position and rotate the wall
     wall.position.set(
       (p1.x + p2.x) / 2,  // Center of the wall in X
       height / 2,         // Half height (as PlaneGeometry is centered)
       (p1.y + p2.y) / 2   // Center of the wall in Z
     );
-    
+
     // Calculate the rotation angle
     const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
     wall.rotation.y = -angle;  // Rotate around Y axis
-    
+
     walls.push(wall);
   }
-  
+
   // Connect the last point to the first point
   if (points.length > 2) {
     const p1 = points[points.length - 1];
     const p2 = points[0];
-    
+
     // Skip very close points
     if (p1.distanceTo(p2) > 0.1) {
       const wallWidth = p1.distanceTo(p2);
       const wallGeometry = new THREE.PlaneGeometry(wallWidth, height, 1, 1);
-      
+
       const wall = new THREE.Mesh(wallGeometry, material);
-      
+
       wall.position.set(
         (p1.x + p2.x) / 2,
         height / 2,
         (p1.y + p2.y) / 2
       );
-      
+
       const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
       wall.rotation.y = -angle;
-      
+
       walls.push(wall);
     }
   }
-  
+
   return walls;
 }
-// Update or replace the original createBuilding function call to use this new function
-// function createBuildings(geojson) {
-//   if (!geojson) return;
-
-//   // Reference point for local coordinates
-//   let referencePoint = null;
-
-//   // Find the first point to use as reference
-//   for (const feature of geojson.features) {
-//     if (feature.geometry && feature.geometry.type === 'Polygon') {
-//       const coordinates = feature.geometry.coordinates[0];
-//       if (coordinates && coordinates.length > 0) {
-//         referencePoint = { lon: coordinates[0][0], lat: coordinates[0][1] };
-//         break;
-//       }
-//     }
-//   }
-
-//   if (!referencePoint) {
-//     console.error('No reference point found in GeoJSON data');
-//     return;
-//   }
-
-//   // Function to convert lon/lat to local coordinates
-//   const toLocalCoords = (lon, lat) => {
-//     // Scale factors (approximate meters per degree at equator)
-//     const lonScale = 111320 * Math.cos(referencePoint.lat * Math.PI / 180);
-//     const latScale = 110540;
-
-//     return {
-//       x: (lon - referencePoint.lon) * lonScale,
-//       z: (lat - referencePoint.lat) * latScale
-//     };
-//   };
-
-//   // Process each feature
-//   geojson.features.forEach(feature => {
-//     const properties = feature.properties || {};
-
-//     if (feature.geometry && feature.geometry.type === 'Polygon') {
-//       // Process building
-//       if (properties.building) {
-//         createBuildingWithRoof(feature, toLocalCoords);  // Use the new function
-//       }
-//       // Process roads
-//       else if (properties.highway) {
-//         createRoad(feature, toLocalCoords);
-//       }
-//     }
-//   });
-
-// Update the building creation function to handle different geometry types
-// function createBuildings(geojson) {
-//   if (!geojson) return;
-
-//   console.log('Processing GeoJSON features:', geojson.features.length);
-
-//   // Group features by type for debugging
-//   const buildings = [];
-//   const roads = [];
-//   const others = [];
-
-//   geojson.features.forEach(feature => {
-//     if (feature.properties && feature.properties.building) {
-//       buildings.push(feature);
-//     } else if (feature.properties && feature.properties.highway) {
-//       roads.push(feature);
-//     } else {
-//       others.push(feature);
-//     }
-//   });
-
-//   console.log(`Found ${buildings.length} buildings, ${roads.length} roads, ${others.length} other features`);
-
-//   // Reference point for local coordinates
-//   let referencePoint = null;
-
-//   // Find the first valid coordinate to use as reference
-//   for (const feature of geojson.features) {
-//     if (feature.geometry) {
-//       if (feature.geometry.type === 'Polygon' && feature.geometry.coordinates[0].length > 0) {
-//         referencePoint = { lon: feature.geometry.coordinates[0][0][0], lat: feature.geometry.coordinates[0][0][1] };
-//         break;
-//       } else if (feature.geometry.type === 'LineString' && feature.geometry.coordinates.length > 0) {
-//         referencePoint = { lon: feature.geometry.coordinates[0][0], lat: feature.geometry.coordinates[0][1] };
-//         break;
-//       }
-//     }
-//   }
-
-//   if (!referencePoint) {
-//     console.error('No reference point found in GeoJSON data');
-//     return;
-//   }
-
-//   console.log('Using reference point:', referencePoint);
-
-//   // Function to convert lon/lat to local coordinates
-//   const toLocalCoords = (lon, lat) => {
-//     // Scale factors (approximate meters per degree at equator)
-//     const lonScale = 111320 * Math.cos(referencePoint.lat * Math.PI / 180);
-//     const latScale = 110540;
-
-//     return {
-//       x: (lon - referencePoint.lon) * lonScale,
-//       z: (lat - referencePoint.lat) * latScale
-//     };
-//   };
-
-//   // Store all geometries for proper centering
-//   const allObjects = [];
-
-//   // First, set up our materials to be double-sided
-//   makeAllMaterialsDoubleSided();
-
-//   // Process each feature
-//   geojson.features.forEach(feature => {
-//     if (!feature.geometry) return;
-
-//     const properties = feature.properties || {};
-//     const objectGroup = new THREE.Group(); // Group for this feature
-
-//     // Process building (Polygon)
-//     if (feature.geometry.type === 'Polygon' && properties.building) {
-//       // Use our hollow building with roof function
-//       createHollowBuildingWithRoof(feature, toLocalCoords, objectGroup);
-//       scene.add(objectGroup);
-//       allObjects.push(objectGroup);
-//     }
-//     // Process roads (LineString or Polygon)
-//     else if (properties.highway) {
-//       if (feature.geometry.type === 'LineString' || feature.geometry.type === 'Polygon') {
-//         createRoad(feature, toLocalCoords);
-//       }
-//     }
-//   });
-
-//   // Center all objects together
-//   centerSceneObjects(allObjects);
-  
-//   // Set up camera controls after everything is loaded
-//   setupCameraControls();
-// }
 
 
 function setupCameraControls() {
   // Assuming you're using OrbitControls
   controls.minDistance = 1; // Allow camera to get very close to objects
   controls.maxDistance = 1500; // Maximum zoom out distance
-  
+
   // Enable damping for smoother camera movements
   controls.enableDamping = true;
   controls.dampingFactor = 0.25;
-  
+
   // Allow full rotations
-  controls.maxPolarAngle = Math.PI;
-  
+  controls.maxPolarAngle = Math.PI / 2;
+
   // Optional: Increase movement speed for easier navigation
   controls.panSpeed = 1.5;
-  controls.rotateSpeed = 1.2;
+  controls.rotateSpeed = 0.8;
   controls.zoomSpeed = 1.2;
 }
 
@@ -701,17 +558,17 @@ function makeAllMaterialsDoubleSided() {
       // Clone to avoid affecting other instances
       const wallMaterial = buildingMaterials[type].wall.clone();
       const roofMaterial = buildingMaterials[type].roof.clone();
-      
+
       // Set to double-sided
       wallMaterial.side = THREE.DoubleSided;
       roofMaterial.side = THREE.DoubleSided;
-      
+
       // Replace the originals
       buildingMaterials[type].wall = wallMaterial;
       buildingMaterials[type].roof = roofMaterial;
     }
   }
-  
+
   // Also set the road material to be double-sided
   roadMaterial.side = THREE.DoubleSided;
 }
@@ -723,10 +580,10 @@ function initSceneForHollowBuildings() {
     renderer.localClippingEnabled = true;
     renderer.sortObjects = true; // Make sure transparent objects render correctly
   }
-  
+
   // Setup camera controls
   setupCameraControls();
-  
+
   // Make ground plane slightly transparent for better navigation
   ground.material.transparent = true;
   ground.material.opacity = 0.9;
@@ -1207,7 +1064,7 @@ class SignalPropagation {
     // // Find intersections with buildings
     // const intersects = this.raycaster.intersectObjects(this.getBuildingObjects(), true);
 
-    const intersects = this.raycaster.intersectObjects(this.getBuildingObjects(), true).filter(obj => !obj.object.userData.ignoreRaycast);
+    const intersects = this.raycaster.intersectObjects(this.getBuildingObjects(), true);
 
 
     try {
@@ -1383,10 +1240,6 @@ class SignalPropagation {
 
     // Add legend for signal strength colors
     this.createSignalLegend();
-
-    const buildings = this.getBuildingObjects();
-    const buildingMeshes = buildings.filter(obj => obj instanceof THREE.Mesh);
-    this.addIndoorSignalCubes(buildingMeshes);
 
     // After completing 2D visualization, also update 3D if active
     if (this.is3DVisualizationActive) {
@@ -1750,8 +1603,10 @@ class SignalPropagation {
 
 
     // Create group for all volume cubes
-    this.volumeVisualizer = new THREE.Group();
-    this.scene.add(this.volumeVisualizer);
+    if (this.volumeVisualizer == null) {
+      this.volumeVisualizer = new THREE.Group();
+      this.scene.add(this.volumeVisualizer);
+    }
 
     // Optimize: create a single geometry for the cube
     const cubeGeometry = new THREE.BoxGeometry(
@@ -1760,44 +1615,44 @@ class SignalPropagation {
       this.gridResolution * 0.9
     );
 
-    for (let i = 0; i < lis_colors.length; i++) {
-      // Create cube material
-      const cubeMaterial = new THREE.MeshBasicMaterial({
-        color: lis_colors[i],
-        transparent: true,
-        opacity: lis_opacity[i],
-        depthWrite: false // Important for transparent objects
-      });
+    // for (let i = 0; i < lis_colors.length; i++) {
+    //   // Create cube material
+    //   const cubeMaterial = new THREE.MeshBasicMaterial({
+    //     color: lis_colors[i],
+    //     transparent: true,
+    //     opacity: lis_opacity[i],
+    //     depthWrite: false // Important for transparent objects
+    //   });
 
-      // Create mesh with shared geometry and unique material
-      const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+    //   // Create mesh with shared geometry and unique material
+    //   const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
 
-      cube.userData.ignoreRaycast = true;
-      // Position cube
-      cube.position.set(xVals[i], yVals[i], zVals[i]);
+    //   cube.userData.ignoreRaycast = true;
+    //   // Position cube
+    //   cube.position.set(xVals[i], yVals[i], zVals[i]);
 
-      // Store signal strength as a property for interaction
-      cube.userData = {
-        signalStrength: lis_signalStrength[i],
-        hasLOS: isLos[i],
-        distance: lis_distance[i],
-        pathLoss: lis_pathLoss[i]
-      };
+    //   // Store signal strength as a property for interaction
+    //   cube.userData = {
+    //     signalStrength: lis_signalStrength[i],
+    //     hasLOS: isLos[i],
+    //     distance: lis_distance[i],
+    //     pathLoss: lis_pathLoss[i]
+    //   };
 
-      // Store reference to cube for updates
-      this.volumeCubes.push(cube);
+    //   // Store reference to cube for updates
+    //   this.volumeCubes.push(cube);
 
-      // Add to group
-      this.volumeVisualizer.add(cube);
+    //   // Add to group
+    //   this.volumeVisualizer.add(cube);
 
-      // Increment counter
-      cubeCount++;
+    //   // Increment counter
+    //   cubeCount++;
 
-      // Display progress periodically to keep UI responsive for large grids
-      if (cubeCount % 1000 === 0) {
-        console.log(`Created ${cubeCount} cubes...`);
-      }
-    }
+    //   // Display progress periodically to keep UI responsive for large grids
+    //   if (cubeCount % 1000 === 0) {
+    //     console.log(`Created ${cubeCount} cubes...`);
+    //   }
+    // }
 
     const textContent = lines.join('\n');
     const blob = new Blob([textContent], { type: 'text/plain' });
@@ -1811,6 +1666,10 @@ class SignalPropagation {
 
     console.log(`3D signal propagation visualization complete. Created ${cubeCount} cubes.`);
 
+    const buildings2 = this.getBuildingObjects();
+    const buildingMeshes = buildings2.filter(obj => obj instanceof THREE.Mesh);
+    this.addIndoorSignalCubes(buildingMeshes);
+
     // Initially hide the 3D visualization
     this.toggleVisualizationMode(false);
   }
@@ -1819,12 +1678,14 @@ class SignalPropagation {
     const signalSource = this.transmitterPosition;
 
 
-  
+
     buildingMeshes.forEach(building => {
       const bbox = new THREE.Box3().setFromObject(building);
       const min = bbox.min;
       const max = bbox.max;
-  
+
+      let temp__ = 1;
+
       for (let x = min.x; x < max.x; x += cubeSize) {
         for (let y = min.y; y < max.y; y += cubeSize) {
           for (let z = min.z; z < max.z; z += cubeSize) {
@@ -1833,30 +1694,58 @@ class SignalPropagation {
               y + cubeSize / 2,
               z + cubeSize / 2
             );
-  
+
             if (this.isPointInsideMesh(point, building)) {
               const distance = point.distanceTo(signalSource);
-              const strength = this.computeSignalStrength(distance, point);
+              let strength = NaN;
+              let pl_b = NaN;
+              let pl_in = NaN;
+              let pl_tw = NaN;
+              let d2d_in = NaN;
+              let pl = NaN;
+
+              [strength, d2d_in, pl, pl_in, pl_b, pl_tw] = this.computeSignalStrength(distance, point);
               const color = this.getColorForSignalStrength(strength);
-  
+
               const cubeGeo = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
               const cubeMat = new THREE.MeshLambertMaterial({
                 color,
                 transparent: true,
                 opacity: 0.5,
               });
-  
+
               const cube = new THREE.Mesh(cubeGeo, cubeMat);
               cube.position.copy(point);
-              scene.add(cube);
+              cube.userData = {
+                signalStrength: strength,
+                distance_2D: d2d_in,
+                distance: distance,
+                pathLoss: pl,
+                pl_b: pl_b,
+                pl_in: pl_in,
+                pl_tw: pl_tw
+
+              }
+              console.log(`Cube created: ${temp__}`)
+              temp__ = temp__ + 1;
+              // scene.add(cube);
+              if (this.volumeVisualizer == null) {
+                this.volumeVisualizer = new THREE.Group();
+                this.scene.add(this.volumeVisualizer);
+              }
+              this.volumeCubes.push(cube);
+
+              // Add to group
+              this.volumeVisualizer.add(cube);
+              
             }
           }
         }
       }
     });
   }
-  
-  
+
+
   // Utility to check if a point is inside a mesh using raycasting
   isPointInsideMesh(point, mesh) {
     const direction = new THREE.Vector3(1, 0, 0); // Arbitrary
@@ -1864,14 +1753,13 @@ class SignalPropagation {
     const intersects = raycaster.intersectObject(mesh, true);
     return intersects.length % 2 === 1;
   }
-  
+
   // Dummy signal strength computation
   computeSignalStrength(distance, point) {
 
-    const path_loss = this.calculatePathLoss(distance, false);
-    const pl_b = this.calculateSignalStrength(path_loss, point);
+    const pl_b = this.calculatePathLoss(distance, false);
 
-    const pl_tw = 5 - (10*Math.log10( (0.3*Math.pow(10, -(2+0.2*SIGNAL_CONSTANTS.frequency)/10)) + (0.7*Math.pow(10, -(5+4*SIGNAL_CONSTANTS.frequency)/10 ) ) ));
+    const pl_tw = 5 - (10 * Math.log10((0.3 * Math.pow(10, -(2 + 0.2 * SIGNAL_CONSTANTS.frequency) / 10)) + (0.7 * Math.pow(10, -(5 + 4 * SIGNAL_CONSTANTS.frequency) / 10))));
     // console.dir(point);
     // console.dir(this.transmitterPosition);
     const ground_point = new THREE.Vector3(
@@ -1884,39 +1772,45 @@ class SignalPropagation {
       0,
       this.transmitterPosition.z
     );
-    const direction = new THREE.Vector3().subVectors(ground_trans, ground_point).normalize();
+
+    const total_2d = ground_point.distanceTo(ground_trans);
+    const total_3d = distance;
+
+    const direction = new THREE.Vector3().subVectors(this.transmitterPosition, point).normalize();
 
     this.raycaster.layers.set(0);
     // Set up raycaster
-    this.raycaster.set(ground_point, direction);
+    this.raycaster.set(point, direction);
 
 
 
     // // Find intersections with buildings
     // const intersects = this.raycaster.intersectObjects(this.getBuildingObjects(), true);
 
-    const intersects = this.raycaster.intersectObjects(this.getBuildingObjects(), true).filter(obj => !obj.object.userData.ignoreRaycast);
+    const intersects = this.raycaster.intersectObjects(this.getBuildingObjects(), true);
     // console.dir(intersects)
 
-    let d2d_in = 0;
+    let d3d_in = 0;
     try {
-      d2d_in = intersects[0].distance;
+      d3d_in = intersects[0].distance;
     } catch (error) {
-      d2d_in = 0;
+      d3d_in = 0;
     }
-    
 
-    
-    const pl_in = 0.5*d2d_in;
+    const ratio = total_2d/total_3d;
+
+    const d2d_in = ratio*d3d_in;
+
+    const pl_in = 0.5 * d2d_in;
 
     const path_loss_total = pl_b + pl_in + pl_tw;
 
     const strength = this.calculateSignalStrength(path_loss_total, point);
 
-    
-    return strength;
+
+    return [strength, d2d_in, path_loss_total, pl_in, pl_b, pl_tw];
   }
-  
+
   // Convert signal strength to color
   getColorFromSignal(strength) {
     const minStrength = -90;
@@ -1926,7 +1820,7 @@ class SignalPropagation {
     const g = Math.max(0, 1.5 * t);
     return new THREE.Color(r, g, 0);
   }
-  
+
 
 
 
@@ -2501,12 +2395,23 @@ function onmousemove(event) {
       const signalData = cube.userData;
 
       // Format and display signal information
+      // infoBox.innerHTML = `
+      //   <div><strong>Position:</strong> (${cube.position.x.toFixed(1)}, ${cube.position.y.toFixed(1)}, ${cube.position.z.toFixed(1)})</div>
+      //   <div><strong>Signal Strength:</strong> ${signalData.signalStrength.toFixed(2)} dBm</div>
+      //   <div><strong>Path Loss:</strong> ${signalData.pathLoss.toFixed(2)} dB</div>
+      //   <div><strong>Distance:</strong> ${signalData.distance.toFixed(2)}m</div>
+      //   <div><strong>Line of Sight:</strong> ${signalData.hasLOS ? 'Yes' : 'No'}</div>
+      // `;
+
       infoBox.innerHTML = `
         <div><strong>Position:</strong> (${cube.position.x.toFixed(1)}, ${cube.position.y.toFixed(1)}, ${cube.position.z.toFixed(1)})</div>
         <div><strong>Signal Strength:</strong> ${signalData.signalStrength.toFixed(2)} dBm</div>
-        <div><strong>Path Loss:</strong> ${signalData.pathLoss.toFixed(2)} dB</div>
+        <div><strong>Distance 2D:</strong> ${signalData.distance_2D.toFixed(2)} dB</div>
         <div><strong>Distance:</strong> ${signalData.distance.toFixed(2)}m</div>
-        <div><strong>Line of Sight:</strong> ${signalData.hasLOS ? 'Yes' : 'No'}</div>
+        <div><strong>Path Loss</strong> ${signalData.pathLoss.toFixed(2)}</div>
+        <div><strong>PL_b</strong> ${signalData.pl_b.toFixed(2)}</div>
+        <div><strong>PL_in</strong> ${signalData.pl_in.toFixed(2)}</div>
+        <div><strong>PL_tw</strong> ${signalData.pl_tw.toFixed(2)}</div>
       `;
 
       // Show info box
