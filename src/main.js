@@ -425,6 +425,7 @@ function setupBuildingMaterials() {
 function createBuildings(geojson) {
   if (!geojson) return;
 
+
   console.log('Processing GeoJSON features:', geojson.features.length);
 
   // Set up our materials to allow camera passage
@@ -467,7 +468,6 @@ function createBuildings(geojson) {
 
   // Store all geometries for proper centering
   const allObjects = [];
-
   // Process each feature
   geojson.features.forEach(feature => {
     if (!feature.geometry) return;
@@ -479,8 +479,15 @@ function createBuildings(geojson) {
     if (feature.geometry.type === 'Polygon' && properties.building) {
       // Use our hollow building with roof function
       createHollowBuildingWithRoof(feature, toLocalCoords, objectGroup);
+      if (properties.alt_name) {
+        objectGroup.name = properties.alt_name;
+      }
+      else {
+        objectGroup.name = properties.name;
+      }
       scene.add(objectGroup);
       allObjects.push(objectGroup);
+
     }
     // Process roads (LineString or Polygon)
     else if (properties.highway) {
@@ -490,6 +497,7 @@ function createBuildings(geojson) {
       }
     }
   });
+
 
   // Center all objects together
   centerSceneObjects(allObjects);
@@ -1785,7 +1793,7 @@ class SignalPropagation {
 
     // Set max visualization height based on buildings or use default if no buildings
     // this.maxVisualizationHeight = Math.max(maxBuildingHeight, this.maxVisualizationHeight);
-    console.log(`Maximum visualization height: ${this.maxVisualizationHeight}m`);
+    // console.log(`Maximum visualization height: ${this.maxVisualizationHeight}m`);
 
     // Determine number of points in each dimension based on resolution
     const xPointCount = Math.ceil(this.gridSize / this.gridResolution);
@@ -1963,8 +1971,6 @@ class SignalPropagation {
       const min = bbox.min;
       const max = bbox.max;
 
-
-
       for (let x = min.x; x < max.x; x += cubeSize) {
         for (let y = min.y; y < max.y; y += cubeSize) {
           for (let z = min.z; z < max.z; z += cubeSize) {
@@ -2002,8 +2008,8 @@ class SignalPropagation {
                 pathLoss: pl,
                 pl_b: pl_b,
                 pl_in: pl_in,
-                pl_tw: pl_tw
-
+                pl_tw: pl_tw,
+                build_name: building.parent.name
               }
               cube.name = 'cube';
 
@@ -3066,6 +3072,7 @@ function onmousemove(event) {
       // Format and display signal information
       if (signalData.distance_2D) {
         infoBox.innerHTML = `
+        <div><strong> ${signalData.build_name}</strong></div>
         <div><strong>Position:</strong> (${cube.position.x.toFixed(1)}, ${cube.position.y.toFixed(1)}, ${cube.position.z.toFixed(1)})</div>
         <div><strong>Signal Strength:</strong> ${signalData.signalStrength.toFixed(2)} dBm</div>
         <div><strong>Distance 2D:</strong> ${signalData.distance_2D.toFixed(2)} dB</div>
