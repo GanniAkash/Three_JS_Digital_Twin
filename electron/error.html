@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Error Loading Application</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f5f5f5;
+      color: #333;
+      margin: 0;
+      padding: 20px;
+      text-align: center;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background-color: #fff;
+      padding: 20px;
+      border-radius: 5px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #e74c3c;
+    }
+    .steps {
+      text-align: left;
+      margin-top: 20px;
+    }
+    code {
+      background-color: #f1f1f1;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Error Loading Application</h1>
+    <p>The application could not find the required files. This usually happens when the application was not built correctly.</p>
+    
+    <div class="steps">
+      <h2>Troubleshooting Steps:</h2>
+      <ol>
+        <li>Make sure you've run <code>npm run build</code> before packaging the application</li>
+        <li>Check that the <code>dist</code> folder exists and contains your built files</li>
+        <li>Verify that the paths in your Electron configuration are correct</li>
+        <li>Try running <code>npm run electron:preview</code> to test before packaging</li>
+      </ol>
+    </div>
+    
+    <p>For more information, check the console output (Ctrl+Shift+I or Cmd+Option+I to open DevTools).</p>
+  </div>
+</body>
+</html>

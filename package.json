@@ -2,19 +2,51 @@
   "name": "osm-3d-viewer",
   "private": true,
   "version": "0.1.0",
-  "type": "module",
+  "type": "commonjs",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"cross-env BROWSER=none vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "electron:build": "vite build && electron-builder",
+    "electron:preview": "vite build && cross-env NODE_ENV=production electron .",
+    "build:Win": "electron-builder --win"
   },
   "devDependencies": {
-    "vite": "^6.3.1"
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^36.2.0",
+    "electron-builder": "^26.0.12",
+    "express": "^5.1.0",
+    "vite": "^6.3.5",
+    "wait-on": "^8.0.3"
   },
   "dependencies": {
     "axios": "^1.4.0",
     "csv-writer": "^1.6.0",
     "osmtogeojson": "^3.0.0-beta.5",
     "three": "^0.153.0"
+  },
+  "build": {
+    "appId": "com.yourcompany.osm3dviewer",
+    "productName": "digitalTwin",
+    "directories": {
+      "output": "electron-dist"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.utilities"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
   }
 }
+
