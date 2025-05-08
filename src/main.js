@@ -246,60 +246,6 @@ function centerSceneObjects(objectsArray) {
 }
 
 
-// Function to create 3D buildings from GeoJSON
-// function createBuildings(geojson) {
-//   if (!geojson) return;
-
-//   // Reference point for local coordinates
-//   let referencePoint = null;
-
-//   // Find the first point to use as reference
-//   for (const feature of geojson.features) {
-//     if (feature.geometry && feature.geometry.type === 'Polygon') {
-//       const coordinates = feature.geometry.coordinates[0];
-//       if (coordinates && coordinates.length > 0) {
-//         referencePoint = { lon: coordinates[0][0], lat: coordinates[0][1] };
-//         break;
-//       }
-//     }
-//   }
-
-//   if (!referencePoint) {
-//     console.error('No reference point found in GeoJSON data');
-//     return;
-//   }
-
-//   // Function to convert lon/lat to local coordinates
-//   const toLocalCoords = (lon, lat) => {
-//     // Scale factors (approximate meters per degree at equator)
-//     const lonScale = 111320 * Math.cos(referencePoint.lat * Math.PI / 180);
-//     const latScale = 110540;
-
-//     return {
-//       x: (lon - referencePoint.lon) * lonScale,
-//       z: (lat - referencePoint.lat) * latScale
-//     };
-//   };
-
-//   // Process each feature
-//   geojson.features.forEach(feature => {
-//     const properties = feature.properties || {};
-
-//     if (feature.geometry.type === 'Polygon') {
-//       // Process building or area
-//       if (properties.building) {
-//         createBuilding(feature, toLocalCoords);
-//       }
-//       // Process roads
-//       else if (properties.highway) {
-//         createRoad(feature, toLocalCoords);
-//       }
-//     }
-//   });
-
-//   // Center the scene after creating all buildings
-//   centerScene();
-// }
 
 // Function to create a 3D building
 function createHollowBuildingWithRoof(feature, toLocalCoords, buildingGroup = null) {
@@ -577,12 +523,12 @@ function setupCameraControls() {
   controls.dampingFactor = 0.25;
 
   // Allow full rotations
-  controls.maxPolarAngle = Math.PI;
+  controls.maxPolarAngle = Math.PI/2;
 
   // Optional: Increase movement speed for easier navigation
   controls.panSpeed = 1.5;
-  controls.rotateSpeed = 0.8;
-  controls.zoomSpeed = 1.2;
+  controls.rotateSpeed = 0.6;
+  controls.zoomSpeed = 1.5;
 }
 
 
@@ -624,131 +570,6 @@ function initSceneForHollowBuildings() {
   ground.material.transparent = true;
   ground.material.opacity = 0.9;
 }
-
-// Center the scene if you have that function
-//   if (typeof centerScene === 'function') {
-//     centerScene();
-//   }
-// }
-
-//Function to create roads
-
-// function createRoad(feature, toLocalCoords) {
-//   // Check if we're dealing with a LineString (most roads) or Polygon
-//   if (feature.geometry.type === 'LineString') {
-//     const temp = feature.geometry.coordinates;
-//     // console.log(temp);
-//     let coordinates = []
-//     for (let i=0; i < temp.length; i=i+1) {
-//       // console.log(temp[i])
-//       console.log(`${temp[i]}`)
-//       coordinates.push([temp[i][0], temp[i][1], 1]);
-//     }
-//     // Skip if not enough points
-//     if (coordinates.length < 2) return;
-
-//     // Convert to local coordinates
-//     const points = [];
-//     for (let i = 0; i < coordinates.length; i++) {
-//       const localCoord = toLocalCoords(coordinates[i][0], coordinates[i][1], coordinates[i][2]);
-//       points.push(new THREE.Vector2(localCoord.x, localCoord.z));
-//     }
-
-//     // Create road path
-//     const roadWidth = 8; // Width in meters, adjust as needed
-
-//     // Create a shape that follows the path with width
-//     const roadShape = new THREE.Shape();
-//     const lineCurve = new THREE.SplineCurve(points);
-//     const divisions = coordinates.length * 4;
-//     const points2 = lineCurve.getPoints(divisions);
-
-//     // Create a ribbon/band following the path
-//     const roadGeometry = new THREE.BufferGeometry();
-//     const vertices = [];
-//     const indices = [];
-
-//     for (let i = 0; i < points2.length - 1; i++) {
-//       const current = points2[i];
-//       const next = points2[i + 1];
-
-//       // Calculate normalized direction vector
-//       const direction = new THREE.Vector2()
-//         .subVectors(next, current)
-//         .normalize();
-
-//       // Calculate perpendicular vector
-//       const perpendicular = new THREE.Vector2(-direction.y, direction.x)
-//         .multiplyScalar(roadWidth / 2);
-
-//       // Calculate the four corners of this segment
-//       const p1 = new THREE.Vector2().addVectors(current, perpendicular);
-//       const p2 = new THREE.Vector2().subVectors(current, perpendicular);
-//       const p3 = new THREE.Vector2().addVectors(next, perpendicular);
-//       const p4 = new THREE.Vector2().subVectors(next, perpendicular);
-
-//       // Add vertices
-//       const baseIndex = vertices.length / 3;
-
-//       // Add the four corners to the vertex array
-//       vertices.push(
-//         p1.x, 0.1, p1.y,
-//         p2.x, 0.1, p2.y,
-//         p3.x, 0.1, p3.y,
-//         p4.x, 0.1, p4.y
-//       );
-
-//       // Create two triangles for this segment
-//       indices.push(
-//         baseIndex, baseIndex + 1, baseIndex + 2,
-//         baseIndex + 1, baseIndex + 3, baseIndex + 2
-//       );
-//     }
-
-//     roadGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-//     roadGeometry.setIndex(indices);
-//     roadGeometry.computeVertexNormals();
-
-//     // Create the mesh and add to scene
-//     const road = new THREE.Mesh(roadGeometry, roadMaterial);
-//     road.receiveShadow = true;
-
-//     // Add to scene
-//     scene.add(road);
-//     return road;
-//   }
-//   else if (feature.geometry.type === 'Polygon') {
-//     const coordinates = feature.geometry.coordinates[0];
-
-//     // Skip if not enough points
-//     if (coordinates.length < 3) return;
-
-//     // Convert to local coordinates
-//     const points = coordinates.map(coord => {
-//       const localCoord = toLocalCoords(coord[0], coord[1]);
-//       return new THREE.Vector2(localCoord.x, localCoord.z);
-//     });
-
-//     // Create road shape
-//     const shape = new THREE.Shape(points);
-
-//     // Create road geometry (slightly elevated from ground)
-//     const extrudeSettings = {
-//       depth: 0.2,
-//       bevelEnabled: false
-//     };
-//     const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-
-//     // Create the mesh and add to scene
-//     const road = new THREE.Mesh(geometry, roadMaterial);
-//     road.rotation.x = Math.PI / 2;
-//     road.position.y = 1; // Slightly above ground
-//     road.receiveShadow = true;
-
-//     // Add to scene
-//     scene.add(road);
-//   }
-// }
 
 
 function getRoadColor(type) {
@@ -818,138 +639,6 @@ loadButton.addEventListener('click', () => {
   loadOSMData(locationInput.value);
 });
 uiContainer.appendChild(loadButton);
-
-// async function loadOSMData(location) {
-//   loadingElement.style.display = 'block';
-
-//   try {
-//     // First, geocode the location to get coordinates
-//     const geocodeUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}`;
-//     const geocodeResponse = await axios.get(geocodeUrl);
-
-//     if (geocodeResponse.data && geocodeResponse.data.length > 0) {
-//       const result = geocodeResponse.data[0];
-//       const boundingBox = [
-//         parseFloat(result.boundingbox[0]), // south
-//         parseFloat(result.boundingbox[2]), // west
-//         parseFloat(result.boundingbox[1]), // north
-//         parseFloat(result.boundingbox[3])  // east
-//       ];
-
-//       // Clear existing buildings and roads
-//       scene.children.forEach(child => {
-//         if (child !== ground && child !== ambientLight && child !== directionalLight && child !== fillLight) {
-//           scene.remove(child);
-//           // Properly dispose of geometries and materials to prevent memory leaks
-//           if (child.geometry) child.geometry.dispose();
-//           if (child.material) {
-//             if (Array.isArray(child.material)) {
-//               child.material.forEach(material => material.dispose());
-//             } else {
-//               child.material.dispose();
-//             }
-//           }
-//         }
-//       });
-
-//       // Fetch and create new buildings
-//       const geojsonData = await fetchOSMData(boundingBox);
-//       createBuildings(geojsonData);
-//       // Call this function during initialization
-//       initSceneForHollowBuildings();
-
-//       // Resize the map image based on the bounding box
-//       const mapImage = await fetchMapImage(boundingBox);
-//       // Assuming the function `downloadMapImage` is adjusted to take a URL directly
-//       // downloadMapImage(mapImage);
-
-//       // Add info text about the loaded area
-//       const infoText = document.createElement('div');
-//       infoText.textContent = `Loaded: ${result.display_name}`;
-//       infoText.style.marginTop = '10px';
-//       uiContainer.appendChild(infoText);
-
-//     } else {
-//       alert('Location not found. Please try a different search term.');
-//     }
-//   } catch (error) {
-//     console.error('Error loading OSM data:', error);
-//     alert('Error loading data. Please try again.');
-//   } finally {
-//     loadingElement.style.display = 'none';
-//   }
-// }
-// // Function to download the image using the Blob URL
-// function downloadMapImage(mapImageBlobUrl) {
-//   try {
-//     // Create an anchor element to trigger the download
-//     const a = document.createElement('a');
-//     a.href = mapImageBlobUrl;
-//     a.download = `map_image.png`; // You can modify the filename here
-
-//     // Append the anchor element to the document and trigger the click to start the download
-//     document.body.appendChild(a);
-//     a.click();
-
-//     // Remove the anchor element from the DOM after triggering the download
-//     document.body.removeChild(a);
-
-//     // Optionally, revoke the Blob URL to free up memory
-//     URL.revokeObjectURL(mapImageBlobUrl);
-//   } catch (err) {
-//     console.error("Map image download failed:", err);
-//   }
-// }
-
-// // Function to fetch and resize the map image based on bounding box
-// async function fetchMapImage(boundingBox) {
-//   const [south, west, north, east] = boundingBox;
-
-//   // Calculate the center of the bounding box
-//   const lat = (north + south) / 2;
-//   const lon = (east + west) / 2;
-
-//   // Calculate the width and height of the bounding box (in degrees)
-//   const width = Math.round(east - west);
-//   const height = Math.round(north - south);
-
-//   // Adjust zoom level and size of the image based on bounding box dimensions
-//   const zoom = Math.round(Math.max(14 - Math.floor(Math.log2(width * height)), 8)); // Adjust zoom level based on area size
-//   const mapWidth = Math.round(Math.min(1024, Math.ceil(512 * width / 360))); // Adjust image width
-//   const mapHeight = Math.round(Math.min(1024, Math.ceil(512 * height / 180))); // Adjust image height
-
-
-//   const MAPBOX_TOKEN = "pk.eyJ1IjoieW9kYTE2MTAiLCJhIjoiY21hOGs2dW5tMWNyaDJqc2RwYXR0YndmZSJ9.T4hoZGsy6TegORwcW1nEfA";  // Replace with your actual Mapbox token
-
-//   // const mapUrl = `https://api.mapbox.com/styles/v1/mapbox/streets-v11/static/${lon},${lat},${zoom}/${mapWidth}x${mapHeight}?access_token=${MAPBOX_TOKEN}`;
-//   const mapUrl = `https://api.mapbox.com/styles/v1/mapbox/streets-v11/static/${lon},${lat},${zoom}/${512}x${512}@2x?access_token=${MAPBOX_TOKEN}`;
-//   // 3. Fetch the image as a Blob
-//     const imageResponse = await fetch(mapUrl);
-//     const imageBlob = await imageResponse.blob();
-
-//     let areaName = 'VNIT';
-//     // 4. Create a download link for the image Blob
-//     const a = document.createElement('a');
-//     const url = URL.createObjectURL(imageBlob);  // Create a temporary URL for the Blob
-//     a.href = url;
-//     a.download = `${areaName.replace(/\s+/g, "_")}_map.png`;
-
-//     // Ensure that the anchor tag is not navigated to
-//     a.style.display = 'none';
-//     document.body.appendChild(a);
-//     a.click();
-//     document.body.removeChild(a);
-
-//     // Clean up the Blob URL
-//     URL.revokeObjectURL(url);
-//   // Fetch the map image as a Blob
-//   // const imageResponse = await fetch(mapUrl);
-//   // const imageBlob = await imageResponse.blob();
-
-//   // // Create a temporary URL for the Blob and return it
-//   // return URL.createObjectURL(imageBlob);
-//   return 0;
-// }
 
 
 async function downloadMapImage(areaName, lati, loni, wid, hei, zom) {
@@ -1125,15 +814,22 @@ let SIGNAL_CONSTANTS = {
 };
 
 // Color mapping for signal strength
-const signalColors = [
-  { level: -40, color: new THREE.Color(1, 0, 0) },   // Violet (strongest)
-  { level: -50, color: new THREE.Color(1, 0.5, 0) },     // Blue
-  { level: -60, color: new THREE.Color(1, 1, 0) },     // Cyan
-  { level: -70, color: new THREE.Color(0, 1, 0) },     // Green
-  { level: -80, color: new THREE.Color(0, 1, 1) },     // Yellow
-  { level: -90, color: new THREE.Color(0, 0, 1) },  // Orange
-  { level: -100, color: new THREE.Color(0.5, 0, 1) },    // Red (weakest)
+let gradientColors = [
+  new THREE.Color(1, 0, 0),   // Red (strongest)
+  new THREE.Color(1, 0.5, 0), // Orange
+  new THREE.Color(1, 1, 0),   // Yellow
+  new THREE.Color(0, 1, 0),   // Green
+  new THREE.Color(0, 1, 1),   // Cyan
+  new THREE.Color(0, 0, 1),   // Blue
+  new THREE.Color(0.5, 0, 1), // Violet (weakest)
 ];
+
+// Generate signal color levels based on min/max strength
+let signalColors = gradientColors.map((color, index, arr) => {
+  const level = SIGNAL_CONSTANTS.maxSignalStrength -
+    ((SIGNAL_CONSTANTS.maxSignalStrength - SIGNAL_CONSTANTS.minSignalStrength) / (arr.length - 1)) * index;
+  return { level, color };
+});
 
 // Create a class to manage the transmitter and signal visualization
 class SignalPropagation {
@@ -1566,7 +1262,7 @@ class SignalPropagation {
       colorBox.style.marginRight = '5px';
 
       const label = document.createElement('span');
-      label.textContent = `${signalColors[i].level} dBm`;
+      label.textContent = `${signalColors[i].level.toFixed(2)} dBm`;
 
       item.appendChild(colorBox);
       item.appendChild(label);
@@ -1818,6 +1514,10 @@ class SignalPropagation {
     const lis_distance = [];
     const lis_intersects = [];
     // For each grid point in 3D space
+
+    let tempBtn = document.getElementById('calcBtn');
+
+    let creatNum = 1;
     for (let yIndex = 0; yIndex < yPointCount; yIndex++) {
       const yVal = yIndex * this.verticalResolution
 
@@ -1828,6 +1528,8 @@ class SignalPropagation {
         const zVal = startZ + zIndex * this.gridResolution;
 
         for (let xIndex = 0; xIndex < xPointCount; xIndex++) {
+
+          tempBtn.textContent = `Calculating... ${creatNum}/${xPointCount * yPointCount * zPointCount}`;
           const xVal = startX + xIndex * this.gridResolution;
 
           // Create 3D point
@@ -1876,12 +1578,12 @@ class SignalPropagation {
           lis_signalStrength.push(signalStrength);
           lis_colors.push(color);
           lis_intersects.push(intersects);
-
+          creatNum += 1;
         }
       }
     }
 
-    cubeCount = 0;
+    cubeCount = 1;
 
 
     // Create group for all volume cubes
@@ -1899,6 +1601,8 @@ class SignalPropagation {
 
     for (let i = 0; i < lis_colors.length; i++) {
       // Create cube material
+
+      tempBtn.textContent = `Creating.. ${cubeCount}/${xPointCount * yPointCount * zPointCount}`;
       const cubeMaterial = new THREE.MeshBasicMaterial({
         color: lis_colors[i],
         transparent: true,
@@ -1965,8 +1669,10 @@ class SignalPropagation {
 
     console.log(`Total no.of buildings: ${buildingMeshes.length}`);
     let temp__ = 1;
-
+    
+    let tempBtn = document.getElementById('oti_bt');
     buildingMeshes.forEach(building => {
+      tempBtn.textContent = `Calculating... ${temp__}/${buildingMeshes.length}`;
       const bbox = new THREE.Box3().setFromObject(building);
       const min = bbox.min;
       const max = bbox.max;
@@ -2261,40 +1967,6 @@ function createSignalControls(signalPropagation) {
     title.textContent = isExpanded ? 'Signal Propagation Controls ▾' : 'Signal Propagation Controls ▸';
   });
 
-  // Create container for signal controls
-  // const signalContainer = document.createElement('div');
-  // signalContainer.style.position = 'absolute';
-  // signalContainer.style.top = '10px';
-  // signalContainer.style.right = '10px';
-  // signalContainer.style.background = 'rgba(255, 255, 255, 0.8)';
-  // signalContainer.style.padding = '10px';
-  // signalContainer.style.borderRadius = '5px';
-  // signalContainer.style.fontFamily = 'Arial, sans-serif';
-  // signalContainer.style.width = '250px';
-  // document.body.appendChild(signalContainer);
-
-  // // Add title
-  // const title = document.createElement('div');
-  // title.textContent = 'Signal Propagation Controls';
-  // title.style.fontWeight = 'bold';
-  // title.style.marginBottom = '10px';
-  // signalContainer.appendChild(title);
-
-  // Add transmitter height control
-  // const heightContainer = document.createElement('div');
-  // heightContainer.style.marginBottom = '10px';
-
-  // const heightLabel = document.createElement('label');
-  // heightLabel.textContent = 'Transmitter Height (m): ';
-  // heightLabel.setAttribute('for', 'tx-height');
-  // heightContainer.appendChild(heightLabel);
-
-  // const heightValue = document.createElement('span');
-  // heightValue.id = 'tx-height-value';
-  // heightValue.textContent = signalPropagation.transmitterHeight;
-  // heightValue.style.marginLeft = '5px';
-  // heightContainer.appendChild(heightValue);
-
   // 1. Create Settings button
   const settingsButton = document.createElement('button');
   settingsButton.style.width = '100%';
@@ -2354,6 +2026,10 @@ function createSignalControls(signalPropagation) {
     if (signalPropagation.transmitter) {
       const position = signalPropagation.transmitter.position;
       signalPropagation.placeTransmitter(position.x, position.z, signalPropagation.transmitterHeight);
+      signalPropagation.placementModeEnabled = false;
+
+      let tempBox = document.getElementById('placement-mode')
+      tempBox.checked = false;
     }
   });
 
@@ -2413,6 +2089,38 @@ function createSignalControls(signalPropagation) {
   powWrapper.appendChild(powInput);
 
   popup.appendChild(powWrapper);
+
+  // Dropdown input
+const dropdownWrapper = document.createElement('div');
+dropdownWrapper.style.display = 'flex';
+dropdownWrapper.style.alignItems = 'center';
+dropdownWrapper.style.marginBottom = '10px';
+
+const dropdownLabel = document.createElement('label');
+dropdownLabel.textContent = 'Select Directivity Function: ';
+dropdownWrapper.appendChild(dropdownLabel);
+
+const dropdown = document.createElement('select');
+dropdown.style.width = '25%';
+dropdown.style.marginLeft = '10px';
+
+['omnidirectional', 'cardioid', 'parabolic'].forEach(value => {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = value.charAt(0).toUpperCase() + value.slice(1); // Capitalize first letter
+  dropdown.appendChild(option);
+});
+
+dropdown.value = signalPropagation.antennaGainPattern;
+
+dropdown.addEventListener('change', () => {
+  signalPropagation.antennaGainPattern = dropdown.value;
+  // Optionally update a constant or trigger a UI update
+});
+
+dropdownWrapper.appendChild(dropdown);
+popup.appendChild(dropdownWrapper);
+
 
   // Gain input
   const gainWrapper = document.createElement('div');
@@ -2525,6 +2233,11 @@ function createSignalControls(signalPropagation) {
 
   minInput.addEventListener('input', () => {
     SIGNAL_CONSTANTS.minSignalStrength = parseInt(minInput.value);
+    signalColors = gradientColors.map((color, index, arr) => {
+      const level = SIGNAL_CONSTANTS.maxSignalStrength -
+        ((SIGNAL_CONSTANTS.maxSignalStrength - SIGNAL_CONSTANTS.minSignalStrength) / (arr.length - 1)) * index;
+      return { level, color };
+    });
   });
   legWrapper.appendChild(minInput);
 
@@ -2544,6 +2257,11 @@ function createSignalControls(signalPropagation) {
 
   maxInput.addEventListener('input', () => {
     SIGNAL_CONSTANTS.maxSignalStrength = parseInt(maxInput.value);
+    signalColors = gradientColors.map((color, index, arr) => {
+      const level = SIGNAL_CONSTANTS.maxSignalStrength -
+        ((SIGNAL_CONSTANTS.maxSignalStrength - SIGNAL_CONSTANTS.minSignalStrength) / (arr.length - 1)) * index;
+      return { level, color };
+    });
   });
   legWrapper.appendChild(maxInput);
 
@@ -2878,6 +2596,7 @@ function createSignalControls(signalPropagation) {
 
   // Add button to apply 3D visualization settings
   const apply3DSettingsButton = document.createElement('button');
+  apply3DSettingsButton.id = 'calcBtn';
   apply3DSettingsButton.textContent = 'Calculate 3D Singnal Strength';
   apply3DSettingsButton.style.width = '100%';
   apply3DSettingsButton.style.padding = '5px';
@@ -2917,6 +2636,7 @@ function createSignalControls(signalPropagation) {
 
   const oti = document.createElement('button');
   oti.textContent = 'Calculate OTI';
+  oti.id = 'oti_bt';
   oti.style.width = '100%';
   oti.style.padding = '5px';
   oti.style.marginTop = '10px';
@@ -3035,7 +2755,10 @@ function onMouseClick(event) {
   if (intersects.length > 0) {
     const point = intersects[0].point;
     signalPropagation.placeTransmitter(point.x, point.z, signalPropagation.transmitterHeight);
+    signalPropagation.placementModeEnabled = false;
     console.log(`Placed transmitter at (${point.x.toFixed(2)}, ${point.z.toFixed(2)}) with height ${signalPropagation.transmitterHeight}m`);
+    let tempBox = document.getElementById('placement-mode');
+    tempBox.checked = false;
   }
 
 
@@ -3075,12 +2798,12 @@ function onmousemove(event) {
         <div><strong> ${signalData.build_name}</strong></div>
         <div><strong>Position:</strong> (${cube.position.x.toFixed(1)}, ${cube.position.y.toFixed(1)}, ${cube.position.z.toFixed(1)})</div>
         <div><strong>Signal Strength:</strong> ${signalData.signalStrength.toFixed(2)} dBm</div>
-        <div><strong>Distance 2D:</strong> ${signalData.distance_2D.toFixed(2)} dB</div>
-        <div><strong>Distance:</strong> ${signalData.distance.toFixed(2)}m</div>
-        <div><strong>Path Loss</strong> ${signalData.pathLoss.toFixed(2)}</div>
-        <div><strong>PL_b</strong> ${signalData.pl_b.toFixed(2)}</div>
-        <div><strong>PL_in</strong> ${signalData.pl_in.toFixed(2)}</div>
-        <div><strong>PL_tw</strong> ${signalData.pl_tw.toFixed(2)}</div>
+        <div><strong>Distance 2D:</strong> ${signalData.distance_2D.toFixed(2)} m</div>
+        <div><strong>Distance:</strong> ${signalData.distance.toFixed(2)} m</div>
+        <div><strong>Path Loss</strong> ${signalData.pathLoss.toFixed(2)} dB</div>
+        <div><strong>PL_b</strong> ${signalData.pl_b.toFixed(2)} dB</div>
+        <div><strong>PL_in</strong> ${signalData.pl_in.toFixed(2)} dB</div>
+        <div><strong>PL_tw</strong> ${signalData.pl_tw.toFixed(2)} dB</div>
       `;
       }
       else {
@@ -3088,7 +2811,7 @@ function onmousemove(event) {
         <div><strong>Position:</strong> (${cube.position.x.toFixed(1)}, ${cube.position.y.toFixed(1)}, ${cube.position.z.toFixed(1)})</div>
         <div><strong>Signal Strength:</strong> ${signalData.signalStrength.toFixed(2)} dBm</div>
         <div><strong>Path Loss:</strong> ${signalData.pathLoss.toFixed(2)} dB</div>
-        <div><strong>Distance:</strong> ${signalData.distance.toFixed(2)}m</div>
+        <div><strong>Distance:</strong> ${signalData.distance.toFixed(2)} m</div>
         <div><strong>Line of Sight:</strong> ${signalData.hasLOS ? 'Yes' : 'No'}</div>
       `;
       }
